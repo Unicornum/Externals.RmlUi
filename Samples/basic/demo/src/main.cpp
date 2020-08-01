@@ -27,7 +27,6 @@
  */
 
 #include <RmlUi/Core.h>
-#include <RmlUi/Controls.h>
 #include <RmlUi/Debugger.h>
 #include <Input.h>
 #include <Shell.h>
@@ -35,7 +34,7 @@
 #include <RmlUi/Core/TransformPrimitive.h>
 #include <RmlUi/Core/StreamMemory.h>
 
-static const Rml::Core::String sandbox_default_rcss = R"(
+static const Rml::String sandbox_default_rcss = R"(
 body { top: 0; left: 0; right: 0; bottom: 0; overflow: hidden auto; }
 scrollbarvertical { width: 15px; }
 scrollbarvertical slidertrack { background: #eee; }
@@ -43,15 +42,21 @@ scrollbarvertical slidertrack:active { background: #ddd; }
 scrollbarvertical sliderbar { width: 15px; min-height: 30px; background: #aaa; }
 scrollbarvertical sliderbar:hover { background: #888; }
 scrollbarvertical sliderbar:active { background: #666; }
+scrollbarhorizontal { height: 15px; }
+scrollbarhorizontal slidertrack { background: #eee; }
+scrollbarhorizontal slidertrack:active { background: #ddd; }
+scrollbarhorizontal sliderbar { height: 15px; min-width: 30px; background: #aaa; }
+scrollbarhorizontal sliderbar:hover { background: #888; }
+scrollbarhorizontal sliderbar:active { background: #666; }
 )";
 
 
-class DemoWindow : public Rml::Core::EventListener
+class DemoWindow : public Rml::EventListener
 {
 public:
-	DemoWindow(const Rml::Core::String &title, const Rml::Core::Vector2f &position, Rml::Core::Context *context)
+	DemoWindow(const Rml::String &title, const Rml::Vector2f &position, Rml::Context *context)
 	{
-		using namespace Rml::Core;
+		using namespace Rml;
 		document = context->LoadDocument("basic/demo/data/demo.rml");
 		if (document != nullptr)
 		{
@@ -62,7 +67,7 @@ public:
 			}
 
 			// Add sandbox default text.
-			if (auto source = static_cast<Rml::Controls::ElementFormControl*>(document->GetElementById("sandbox_rml_source")))
+			if (auto source = static_cast<Rml::ElementFormControl*>(document->GetElementById("sandbox_rml_source")))
 			{
 				auto value = source->GetValue();
 				value += "<p>Write your RML here</p>\n\n<!-- <img src=\"assets/high_scores_alien_1.tga\"/> -->";
@@ -80,11 +85,11 @@ public:
 				iframe->SetInnerRML("<p>Rendered output goes here.</p>");
 
 				// Load basic RML style sheet
-				Rml::Core::String style_sheet_content;
+				Rml::String style_sheet_content;
 				{
 					// Load file into string
-					auto file_interface = Rml::Core::GetFileInterface();
-					Rml::Core::FileHandle handle = file_interface->Open("assets/rml.rcss");
+					auto file_interface = Rml::GetFileInterface();
+					Rml::FileHandle handle = file_interface->Open("assets/rml.rcss");
 					
 					size_t length = file_interface->Length(handle);
 					style_sheet_content.resize(length);
@@ -94,17 +99,17 @@ public:
 					style_sheet_content += sandbox_default_rcss;
 				}
 
-				Rml::Core::StreamMemory stream((Rml::Core::byte*)style_sheet_content.data(), style_sheet_content.size());
+				Rml::StreamMemory stream((Rml::byte*)style_sheet_content.data(), style_sheet_content.size());
 				stream.SetSourceURL("sandbox://default_rcss");
 
-				rml_basic_style_sheet = std::make_shared<Rml::Core::StyleSheet>();
+				rml_basic_style_sheet = MakeShared<Rml::StyleSheet>();
 				rml_basic_style_sheet->LoadStyleSheet(&stream);
 			}
 
 			// Add sandbox style sheet text.
-			if (auto source = static_cast<Rml::Controls::ElementFormControl*>(document->GetElementById("sandbox_rcss_source")))
+			if (auto source = static_cast<Rml::ElementFormControl*>(document->GetElementById("sandbox_rcss_source")))
 			{
-				Rml::Core::String value = "/* Write your RCSS here */\n\n/* body { color: #fea; background: #224; }\nimg { image-color: red; } */";
+				Rml::String value = "/* Write your RCSS here */\n\n/* body { color: #fea; background: #224; }\nimg { image-color: red; } */";
 				source->SetValue(value);
 				SetSandboxStylesheet(value);
 			}
@@ -123,7 +128,7 @@ public:
 		}
 		if (submitting && gauge && progress_horizontal)
 		{
-			using namespace Rml::Core;
+			using namespace Rml;
 			constexpr float progressbars_time = 2.f;
 			const float progress = Math::Min(float(GetSystemInterface()->GetElapsedTime() - submitting_start_time) / progressbars_time, 2.f);
 
@@ -178,24 +183,19 @@ public:
 		}
 	}
 
-	void ProcessEvent(Rml::Core::Event& event) override
+	void ProcessEvent(Rml::Event& event) override
 	{
-		using namespace Rml::Core;
+		using namespace Rml;
 
 		switch (event.GetId())
 		{
 		case EventId::Keydown:
 		{
-			Rml::Core::Input::KeyIdentifier key_identifier = (Rml::Core::Input::KeyIdentifier) event.GetParameter< int >("key_identifier", 0);
-			bool ctrl_key = event.GetParameter< bool >("ctrl_key", false);
+			Rml::Input::KeyIdentifier key_identifier = (Rml::Input::KeyIdentifier) event.GetParameter< int >("key_identifier", 0);
 
-			if (key_identifier == Rml::Core::Input::KI_ESCAPE)
+			if (key_identifier == Rml::Input::KI_ESCAPE)
 			{
 				Shell::RequestExit();
-			}
-			else if (key_identifier == Rml::Core::Input::KI_F8)
-			{
-				Rml::Debugger::SetVisible(!Rml::Debugger::IsVisible());
 			}
 		}
 		break;
@@ -205,14 +205,14 @@ public:
 		}
 	}
 
-	Rml::Core::ElementDocument * GetDocument() {
+	Rml::ElementDocument * GetDocument() {
 		return document;
 	}
 
-	void SubmitForm(Rml::Core::String in_submit_message) 
+	void SubmitForm(Rml::String in_submit_message) 
 	{
 		submitting = true;
-		submitting_start_time = Rml::Core::GetSystemInterface()->GetElapsedTime();
+		submitting_start_time = Rml::GetSystemInterface()->GetElapsedTime();
 		submit_message = in_submit_message;
 		if (auto el_output = document->GetElementById("form_output"))
 			el_output->SetInnerRML("");
@@ -220,12 +220,12 @@ public:
 			el_progress->SetProperty("display", "block");
 	}
 
-	void SetSandboxStylesheet(const Rml::Core::String& string)
+	void SetSandboxStylesheet(const Rml::String& string)
 	{
 		if (iframe && rml_basic_style_sheet)
 		{
-			auto style = std::make_shared<Rml::Core::StyleSheet>();
-			Rml::Core::StreamMemory stream((const Rml::Core::byte*)string.data(), string.size());
+			auto style = Rml::MakeShared<Rml::StyleSheet>();
+			Rml::StreamMemory stream((const Rml::byte*)string.data(), string.size());
 			stream.SetSourceURL("sandbox://rcss");
 
 			style->LoadStyleSheet(&stream);
@@ -234,7 +234,7 @@ public:
 		}
 	}
 
-	void SetSandboxBody(const Rml::Core::String& string)
+	void SetSandboxBody(const Rml::String& string)
 	{
 		if (iframe)
 		{
@@ -243,24 +243,24 @@ public:
 	}
 
 private:
-	Rml::Core::ElementDocument *document = nullptr;
-	Rml::Core::ElementDocument *iframe = nullptr;
-	Rml::Core::Element *gauge = nullptr, *progress_horizontal = nullptr;
-	Rml::Core::SharedPtr<Rml::Core::StyleSheet> rml_basic_style_sheet;
+	Rml::ElementDocument *document = nullptr;
+	Rml::ElementDocument *iframe = nullptr;
+	Rml::Element *gauge = nullptr, *progress_horizontal = nullptr;
+	Rml::SharedPtr<Rml::StyleSheet> rml_basic_style_sheet;
 
 	bool submitting = false;
 	double submitting_start_time = 0;
-	Rml::Core::String submit_message;
+	Rml::String submit_message;
 };
 
 
-Rml::Core::Context* context = nullptr;
+Rml::Context* context = nullptr;
 ShellRenderInterfaceExtensions *shell_renderer;
-std::unique_ptr<DemoWindow> demo_window;
+Rml::UniquePtr<DemoWindow> demo_window;
 
 struct TweeningParameters {
-	Rml::Core::Tween::Type type = Rml::Core::Tween::Linear;
-	Rml::Core::Tween::Direction direction = Rml::Core::Tween::Out;
+	Rml::Tween::Type type = Rml::Tween::Linear;
+	Rml::Tween::Direction direction = Rml::Tween::Out;
 	float duration = 0.5f;
 } tweening_parameters;
 
@@ -278,14 +278,14 @@ void GameLoop()
 
 
 
-class DemoEventListener : public Rml::Core::EventListener
+class DemoEventListener : public Rml::EventListener
 {
 public:
-	DemoEventListener(const Rml::Core::String& value, Rml::Core::Element* element) : value(value), element(element) {}
+	DemoEventListener(const Rml::String& value, Rml::Element* element) : value(value), element(element) {}
 
-	void ProcessEvent(Rml::Core::Event& event) override
+	void ProcessEvent(Rml::Event& event) override
 	{
-		using namespace Rml::Core;
+		using namespace Rml;
 
 		if (value == "exit")
 		{
@@ -308,7 +308,7 @@ public:
 		}
 		else if (value == "change_color")
 		{
-			Colourb color(Math::RandomInteger(255), Math::RandomInteger(255), Math::RandomInteger(255));
+			Colourb color((byte)Math::RandomInteger(255), (byte)Math::RandomInteger(255), (byte)Math::RandomInteger(255));
 			element->Animate("image-color", Property(color, Property::COLOUR), tweening_parameters.duration, Tween(tweening_parameters.type, tweening_parameters.direction));
 			event.StopPropagation();
 		}
@@ -341,7 +341,9 @@ public:
 			if (it != tweening_functions.end())
 				tweening_parameters.type = it->second;
 			else
+			{
 				RMLUI_ERROR;
+			}
 		}
 		else if (value == "tween_direction")
 		{
@@ -353,11 +355,13 @@ public:
 			else if(value == "in-out")
 				tweening_parameters.direction = Tween::InOut;
 			else
+			{
 				RMLUI_ERROR;
+			}
 		}
 		else if (value == "tween_duration")
 		{
-			float value = (float)std::atof(static_cast<Rml::Controls::ElementFormControl*>(element)->GetValue().c_str());
+			float value = (float)std::atof(static_cast<Rml::ElementFormControl*>(element)->GetValue().c_str());
 			tweening_parameters.duration = value;
 			if (auto el_duration = element->GetElementById("duration"))
 				el_duration->SetInnerRML(CreateString(20, "%2.2f", value));
@@ -369,10 +373,13 @@ public:
 			if (el_rating && el_rating_emoji)
 			{
 				enum { Sad, Mediocre, Exciting, Celebrate, Champion, CountEmojis };
-				static const Rml::Core::String emojis[CountEmojis] = { u8"😢", u8"😐", u8"😮", u8"😎", u8"🏆" };
+				static const Rml::String emojis[CountEmojis] = { 
+					(const char*)u8"😢", (const char*)u8"😐", (const char*)u8"😮",
+					(const char*)u8"😎", (const char*)u8"🏆"
+				};
 				int value = event.GetParameter("value", 50);
 				
-				Rml::Core::String emoji;
+				Rml::String emoji;
 				if (value <= 0)
 					emoji = emojis[Sad];
 				else if(value < 50)
@@ -384,17 +391,17 @@ public:
 				else
 					emoji = emojis[Champion];
 
-				el_rating->SetInnerRML(Rml::Core::CreateString(30, "%d%%", value));
+				el_rating->SetInnerRML(Rml::CreateString(30, "%d%%", value));
 				el_rating_emoji->SetInnerRML(emoji);
 			}
 		}
 		else if (value == "submit_form")
 		{
 			const auto& p = event.GetParameters();
-			Rml::Core::String output = "<p>";
+			Rml::String output = "<p>";
 			for (auto& entry : p)
 			{
-				auto value = Rml::Core::StringUtilities::EncodeRml(entry.second.Get<Rml::Core::String>());
+				auto value = Rml::StringUtilities::EncodeRml(entry.second.Get<Rml::String>());
 				if (entry.first == "message")
 					value = "<br/>" + value;
 				output += "<strong>" + entry.first + "</strong>: " + value + "<br/>";
@@ -405,7 +412,7 @@ public:
 		}
 		else if (value == "set_sandbox_body")
 		{
-			if (auto source = static_cast<Rml::Controls::ElementFormControl*>(element->GetElementById("sandbox_rml_source")))
+			if (auto source = static_cast<Rml::ElementFormControl*>(element->GetElementById("sandbox_rml_source")))
 			{
 				auto value = source->GetValue();
 				demo_window->SetSandboxBody(value);
@@ -413,7 +420,7 @@ public:
 		}
 		else if (value == "set_sandbox_style")
 		{
-			if (auto source = static_cast<Rml::Controls::ElementFormControl*>(element->GetElementById("sandbox_rcss_source")))
+			if (auto source = static_cast<Rml::ElementFormControl*>(element->GetElementById("sandbox_rcss_source")))
 			{
 				auto value = source->GetValue();
 				demo_window->SetSandboxStylesheet(value);
@@ -421,19 +428,19 @@ public:
 		}
 	}
 
-	void OnDetach(Rml::Core::Element* element) override { delete this; }
+	void OnDetach(Rml::Element* /*element*/) override { delete this; }
 
 private:
-	Rml::Core::String value;
-	Rml::Core::Element* element;
+	Rml::String value;
+	Rml::Element* element;
 };
 
 
 
-class DemoEventListenerInstancer : public Rml::Core::EventListenerInstancer
+class DemoEventListenerInstancer : public Rml::EventListenerInstancer
 {
 public:
-	Rml::Core::EventListener* InstanceEventListener(const Rml::Core::String& value, Rml::Core::Element* element) override
+	Rml::EventListener* InstanceEventListener(const Rml::String& value, Rml::Element* element) override
 	{
 		return new DemoEventListener(value, element);
 	}
@@ -472,24 +479,23 @@ int main(int RMLUI_UNUSED_PARAMETER(argc), char** RMLUI_UNUSED_PARAMETER(argv))
 	}
 
 	// RmlUi initialisation.
-	Rml::Core::SetRenderInterface(&opengl_renderer);
+	Rml::SetRenderInterface(&opengl_renderer);
 	opengl_renderer.SetViewport(width, height);
 
 	ShellSystemInterface system_interface;
-	Rml::Core::SetSystemInterface(&system_interface);
+	Rml::SetSystemInterface(&system_interface);
 
-	Rml::Core::Initialise();
+	Rml::Initialise();
 
 	// Create the main RmlUi context and set it on the shell's input layer.
-	context = Rml::Core::CreateContext("main", Rml::Core::Vector2i(width, height));
+	context = Rml::CreateContext("main", Rml::Vector2i(width, height));
 	if (context == nullptr)
 	{
-		Rml::Core::Shutdown();
+		Rml::Shutdown();
 		Shell::Shutdown();
 		return -1;
 	}
 
-	Rml::Controls::Initialise();
 	Rml::Debugger::Initialise(context);
 	Input::SetContext(context);
 	shell_renderer->SetContext(context);
@@ -497,21 +503,21 @@ int main(int RMLUI_UNUSED_PARAMETER(argc), char** RMLUI_UNUSED_PARAMETER(argv))
 	context->SetDensityIndependentPixelRatio(1.0f);
 
 	DemoEventListenerInstancer event_listener_instancer;
-	Rml::Core::Factory::RegisterEventListenerInstancer(&event_listener_instancer);
+	Rml::Factory::RegisterEventListenerInstancer(&event_listener_instancer);
 
 	Shell::LoadFonts("assets/");
 
-	demo_window = std::make_unique<DemoWindow>("Demo sample", Rml::Core::Vector2f(150, 50), context);
-	demo_window->GetDocument()->AddEventListener(Rml::Core::EventId::Keydown, demo_window.get());
-	demo_window->GetDocument()->AddEventListener(Rml::Core::EventId::Keyup, demo_window.get());
-	demo_window->GetDocument()->AddEventListener(Rml::Core::EventId::Animationend, demo_window.get());
+	demo_window = Rml::MakeUnique<DemoWindow>("Demo sample", Rml::Vector2f(150, 50), context);
+	demo_window->GetDocument()->AddEventListener(Rml::EventId::Keydown, demo_window.get());
+	demo_window->GetDocument()->AddEventListener(Rml::EventId::Keyup, demo_window.get());
+	demo_window->GetDocument()->AddEventListener(Rml::EventId::Animationend, demo_window.get());
 
 	Shell::EventLoop(GameLoop);
 
 	demo_window->Shutdown();
 
 	// Shutdown RmlUi.
-	Rml::Core::Shutdown();
+	Rml::Shutdown();
 
 	Shell::CloseWindow();
 	Shell::Shutdown();

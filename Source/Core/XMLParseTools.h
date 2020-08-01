@@ -26,13 +26,12 @@
  *
  */
 
-#ifndef RMLUICOREXMLPARSETOOLS_H
-#define RMLUICOREXMLPARSETOOLS_H
+#ifndef RMLUI_CORE_XMLPARSETOOLS_H
+#define RMLUI_CORE_XMLPARSETOOLS_H
 
 #include "../../Include/RmlUi/Core/Types.h"
 
 namespace Rml {
-namespace Core {
 
 class Element;
 
@@ -61,9 +60,13 @@ public:
 	/// @param template_name Name of the template to apply, in TEMPLATE:ELEMENT_ID form
 	/// @returns Element to continue the parse from
 	static Element* ParseTemplate(Element* element, const String& template_name);
+
+    /// Determine the presence of data expression brackets inside XML data.
+    /// Call this for each iteration through the data string.
+    /// 'inside_brackets' should be initialized to false.
+    /// Returns nullptr on success, or an error string on failure.
+    static const char* ParseDataBrackets(bool& inside_brackets, char c, char previous);
 };
 
-}
-}
-
+} // namespace Rml
 #endif

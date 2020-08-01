@@ -42,17 +42,18 @@ RmlUiSDL2Renderer::RmlUiSDL2Renderer(SDL_Renderer* renderer, SDL_Window* screen)
 }
 
 // Called by RmlUi when it wants to render geometry that it does not wish to optimise.
-void RmlUiSDL2Renderer::RenderGeometry(Rml::Core::Vertex* vertices, int num_vertices, int* indices, int num_indices, const Rml::Core::TextureHandle texture, const Rml::Core::Vector2f& translation)
+void RmlUiSDL2Renderer::RenderGeometry(Rml::Vertex* vertices, int num_vertices, int* indices, int num_indices, const Rml::TextureHandle texture, const Rml::Vector2f& translation)
 {
     // SDL uses shaders that we need to disable here  
     glUseProgramObjectARB(0);
     glPushMatrix();
     glTranslatef(translation.x, translation.y, 0);
  
-    std::vector<Rml::Core::Vector2f> Positions(num_vertices);
-    std::vector<Rml::Core::Colourb> Colors(num_vertices);
-    std::vector<Rml::Core::Vector2f> TexCoords(num_vertices);
-    float texw, texh;
+    Rml::Vector<Rml::Vector2f> Positions(num_vertices);
+    Rml::Vector<Rml::Colourb> Colors(num_vertices);
+    Rml::Vector<Rml::Vector2f> TexCoords(num_vertices);
+    float texw = 0.0f;
+    float texh = 0.0f;
  
     SDL_Texture* sdl_texture = nullptr;
     if(texture)
@@ -117,11 +118,11 @@ void RmlUiSDL2Renderer::SetScissorRegion(int x, int y, int width, int height)
 }
 
 // Called by RmlUi when a texture is required by the library.		
-bool RmlUiSDL2Renderer::LoadTexture(Rml::Core::TextureHandle& texture_handle, Rml::Core::Vector2i& texture_dimensions, const Rml::Core::String& source)
+bool RmlUiSDL2Renderer::LoadTexture(Rml::TextureHandle& texture_handle, Rml::Vector2i& texture_dimensions, const Rml::String& source)
 {
 
-    Rml::Core::FileInterface* file_interface = Rml::Core::GetFileInterface();
-    Rml::Core::FileHandle file_handle = file_interface->Open(source);
+    Rml::FileInterface* file_interface = Rml::GetFileInterface();
+    Rml::FileHandle file_handle = file_interface->Open(source);
     if (!file_handle)
         return false;
 
@@ -140,16 +141,16 @@ bool RmlUiSDL2Renderer::LoadTexture(Rml::Core::TextureHandle& texture_handle, Rm
             break;
     }
 
-    Rml::Core::String extension = source.substr(i+1, source.length()-i);
+    Rml::String extension = source.substr(i+1, source.length()-i);
 
-    SDL_Surface* surface = IMG_LoadTyped_RW(SDL_RWFromMem(buffer, buffer_size), 1, extension.c_str());
+    SDL_Surface* surface = IMG_LoadTyped_RW(SDL_RWFromMem(buffer, int(buffer_size)), 1, extension.c_str());
 
     if (surface) {
         SDL_Texture *texture = SDL_CreateTextureFromSurface(mRenderer, surface);
 
         if (texture) {
-            texture_handle = (Rml::Core::TextureHandle) texture;
-            texture_dimensions = Rml::Core::Vector2i(surface->w, surface->h);
+            texture_handle = (Rml::TextureHandle) texture;
+            texture_dimensions = Rml::Vector2i(surface->w, surface->h);
             SDL_FreeSurface(surface);
         }
         else
@@ -164,7 +165,7 @@ bool RmlUiSDL2Renderer::LoadTexture(Rml::Core::TextureHandle& texture_handle, Rm
 }
 
 // Called by RmlUi when a texture is required to be built from an internally-generated sequence of pixels.
-bool RmlUiSDL2Renderer::GenerateTexture(Rml::Core::TextureHandle& texture_handle, const Rml::Core::byte* source, const Rml::Core::Vector2i& source_dimensions)
+bool RmlUiSDL2Renderer::GenerateTexture(Rml::TextureHandle& texture_handle, const Rml::byte* source, const Rml::Vector2i& source_dimensions)
 {
     #if SDL_BYTEORDER == SDL_BIG_ENDIAN
         Uint32 rmask = 0xff000000;
@@ -182,12 +183,12 @@ bool RmlUiSDL2Renderer::GenerateTexture(Rml::Core::TextureHandle& texture_handle
     SDL_Texture *texture = SDL_CreateTextureFromSurface(mRenderer, surface);
     SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(surface);
-    texture_handle = (Rml::Core::TextureHandle) texture;
+    texture_handle = (Rml::TextureHandle) texture;
     return true;
 }
 
 // Called by RmlUi when a loaded texture is no longer required.		
-void RmlUiSDL2Renderer::ReleaseTexture(Rml::Core::TextureHandle texture_handle)
+void RmlUiSDL2Renderer::ReleaseTexture(Rml::TextureHandle texture_handle)
 {
     SDL_DestroyTexture((SDL_Texture*) texture_handle);
 }

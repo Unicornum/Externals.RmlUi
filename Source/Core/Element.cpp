@@ -30,6 +30,7 @@
 #include "../../Include/RmlUi/Core/Element.h"
 #include "../../Include/RmlUi/Core/Context.h"
 #include "../../Include/RmlUi/Core/Core.h"
+#include "../../Include/RmlUi/Core/DataModel.h"
 #include "../../Include/RmlUi/Core/ElementDocument.h"
 #include "../../Include/RmlUi/Core/ElementInstancer.h"
 #include "../../Include/RmlUi/Core/ElementScroll.h"
@@ -42,7 +43,6 @@
 #include "../../Include/RmlUi/Core/PropertyDefinition.h"
 #include "../../Include/RmlUi/Core/StyleSheetSpecification.h"
 #include "../../Include/RmlUi/Core/TransformPrimitive.h"
-#include "../../Include/RmlUi/Core/TransformState.h"
 #include "Clock.h"
 #include "ComputeProperty.h"
 #include "ElementAnimation.h"
@@ -58,13 +58,14 @@
 #include "PropertiesIterator.h"
 #include "Pool.h"
 #include "StyleSheetParser.h"
-#include "StringCache.h"
+#include "StyleSheetNode.h"
+#include "TransformState.h"
+#include "TransformUtilities.h"
 #include "XMLParseTools.h"
 #include <algorithm>
 #include <cmath>
 
 namespace Rml {
-namespace Core {
 
 /**
 	STL function object for sorting elements by z-type (ie, float-types before general types, etc).
@@ -73,7 +74,7 @@ namespace Core {
 class ElementSortZOrder
 {
 public:
-	bool operator()(const std::pair< Element*, float >& lhs, const std::pair< Element*, float >& rhs) const
+	bool operator()(const Pair< Element*, float >& lhs, const Pair< Element*, float >& rhs) const
 	{
 		return lhs.second < rhs.second;
 	}
@@ -148,6 +149,7 @@ transform_state(), dirty_transform(false), dirty_perspective(false), dirty_anima
 	clipping_state_dirty = true;
 
 	meta = element_meta_chunk_pool.AllocateAndConstruct(this);
+	data_model = nullptr;
 }
 
 Element::~Element()
@@ -177,7 +179,11 @@ Element::~Element()
 
 void Element::Update(float dp_ratio)
 {
+#ifdef RMLUI_ENABLE_PROFILING
+	auto name = GetAddress(false, false);
 	RMLUI_ZoneScoped;
+	RMLUI_ZoneText(name.c_str(), name.size());
+#endif
 
 	OnUpdate();
 
@@ -769,7 +775,7 @@ bool Element::Project(Vector2f& point) const noexcept
 
 PropertiesIteratorView Element::IterateLocalProperties() const
 {
-	return PropertiesIteratorView(std::make_unique<PropertiesIterator>(meta->style.Iterate()));
+	return PropertiesIteratorView(MakeUnique<PropertiesIterator>(meta->style.Iterate()));
 }
 
 
@@ -1279,7 +1285,6 @@ Element* Element::AppendChild(ElementPtr child, bool dom_element)
 {
 	RMLUI_ASSERT(child);
 	Element* child_ptr = child.get();
-	child_ptr->SetParent(this);
 	if (dom_element)
 		children.insert(children.end() - num_non_dom_children, std::move(child));
 	else
@@ -1287,6 +1292,8 @@ Element* Element::AppendChild(ElementPtr child, bool dom_element)
 		children.push_back(std::move(child));
 		num_non_dom_children++;
 	}
+	// Set parent just after inserting into children. This allows us to eg. get our previous sibling in SetParent.
+	child_ptr->SetParent(this);
 
 	Element* ancestor = child_ptr;
 	for (int i = 0; i <= ChildNotifyLevels && ancestor; i++, ancestor = ancestor->GetParentNode())
@@ -1328,7 +1335,6 @@ Element* Element::InsertBefore(ElementPtr child, Element* adjacent_element)
 	if (found_child)
 	{
 		child_ptr = child.get();
-		child_ptr->SetParent(this);
 
 		if ((int) child_index >= GetNumChildren())
 			num_non_dom_children++;
@@ -1336,6 +1342,7 @@ Element* Element::InsertBefore(ElementPtr child, Element* adjacent_element)
 			DirtyLayout();
 
 		children.insert(children.begin() + child_index, std::move(child));
+		child_ptr->SetParent(this);
 
 		Element* ancestor = child_ptr;
 		for (int i = 0; i <= ChildNotifyLevels && ancestor; i++, ancestor = ancestor->GetParentNode())
@@ -1370,9 +1377,9 @@ ElementPtr Element::ReplaceChild(ElementPtr inserted_element, Element* replaced_
 		return nullptr;
 	}
 
+	children.insert(insertion_point, std::move(inserted_element));
 	inserted_element_ptr->SetParent(this);
 
-	children.insert(insertion_point, std::move(inserted_element));
 	ElementPtr result = RemoveChild(replaced_element);
 
 	Element* ancestor = inserted_element_ptr;
@@ -1476,6 +1483,73 @@ void Element::GetElementsByClassName(ElementList& elements, const String& class_
 	return ElementUtilities::GetElementsByClassName(elements, this, class_name);
 }
 
+static Element* QuerySelectorMatchRecursive(const StyleSheetNodeListRaw& nodes, Element* element)
+{
+	for (int i = 0; i < element->GetNumChildren(); i++)
+	{
+		Element* child = element->GetChild(i);
+
+		for (const StyleSheetNode* node : nodes)
+		{
+			if (node->IsApplicable(child, false))
+				return child;
+		}
+
+		Element* matching_element = QuerySelectorMatchRecursive(nodes, child);
+		if (matching_element)
+			return matching_element;
+	}
+
+	return nullptr;
+}
+
+static void QuerySelectorAllMatchRecursive(ElementList& matching_elements, const StyleSheetNodeListRaw& nodes, Element* element)
+{
+	for (int i = 0; i < element->GetNumChildren(); i++)
+	{
+		Element* child = element->GetChild(i);
+
+		for (const StyleSheetNode* node : nodes)
+		{
+			if (node->IsApplicable(child, false))
+			{
+				matching_elements.push_back(child);
+				break;
+			}
+		}
+
+		QuerySelectorAllMatchRecursive(matching_elements, nodes, child);
+	}
+}
+
+Element* Element::QuerySelector(const String& selectors)
+{
+	StyleSheetNode root_node;
+	StyleSheetNodeListRaw leaf_nodes = StyleSheetParser::ConstructNodes(root_node, selectors);
+
+	if (leaf_nodes.empty())
+	{
+		Log::Message(Log::LT_WARNING, "Query selector '%s' is empty. In element %s", selectors.c_str(), GetAddress().c_str());
+		return nullptr;
+	}
+
+	return QuerySelectorMatchRecursive(leaf_nodes, this);
+}
+
+void Element::QuerySelectorAll(ElementList& elements, const String& selectors)
+{
+	StyleSheetNode root_node;
+	StyleSheetNodeListRaw leaf_nodes = StyleSheetParser::ConstructNodes(root_node, selectors);
+
+	if (leaf_nodes.empty())
+	{
+		Log::Message(Log::LT_WARNING, "Query selector '%s' is empty. In element %s", selectors.c_str(), GetAddress().c_str());
+		return;
+	}
+
+	QuerySelectorAllMatchRecursive(elements, leaf_nodes, this);
+}
+
 // Access the event dispatcher
 EventDispatcher* Element::GetEventDispatcher() const
 {
@@ -1509,6 +1583,11 @@ ElementDecoration* Element::GetElementDecoration() const
 ElementScroll* Element::GetElementScroll() const
 {
 	return &meta->scroll;
+}
+
+DataModel* Element::GetDataModel() const
+{
+	return data_model;
 }
 	
 int Element::GetClippingIgnoreDepth()
@@ -1546,7 +1625,7 @@ RenderInterface* Element::GetRenderInterface()
 	if (Context* context = GetContext())
 		return context->GetRenderInterface();
 
-	return Rml::Core::GetRenderInterface();
+	return ::Rml::GetRenderInterface();
 }
 
 void Element::SetInstancer(ElementInstancer* _instancer)
@@ -1603,18 +1682,23 @@ void Element::OnAttributeChange(const ElementAttributes& changed_attributes)
 		meta->style.SetClassNames(it->second.Get<String>());
 	}
 
-	// Add any inline style declarations.
 	it = changed_attributes.find("style");
 	if (it != changed_attributes.end())
 	{
-		PropertyDictionary properties;
-		StyleSheetParser parser;
-		parser.ParseProperties(properties, it->second.Get<String>());
-
-		Rml::Core::PropertyMap property_map = properties.GetProperties();
-		for (Rml::Core::PropertyMap::iterator i = property_map.begin(); i != property_map.end(); ++i)
+		if (it->second.GetType() == Variant::STRING)
 		{
-			meta->style.SetProperty((*i).first, (*i).second);
+			PropertyDictionary properties;
+			StyleSheetParser parser;
+			parser.ParseProperties(properties, it->second.GetReference<String>());
+
+			for (const auto& name_value : properties.GetProperties())
+			{
+				meta->style.SetProperty(name_value.first, name_value.second);
+			}
+		}
+		else if (it->second.GetType() != Variant::NONE)
+		{
+			Log::Message(Log::LT_WARNING, "Invalid 'style' attribute, string type required. In element: %s", GetAddress().c_str());
 		}
 	}
 }
@@ -1781,12 +1865,12 @@ void Element::OnPropertyChange(const PropertyIdSet& changed_properties)
 }
 
 // Called when a child node has been added somewhere in the hierarchy
-void Element::OnChildAdd(Element* child)
+void Element::OnChildAdd(Element* /*child*/)
 {
 }
 
 // Called when a child node has been removed somewhere in the hierarchy
-void Element::OnChildRemove(Element* child)
+void Element::OnChildRemove(Element* /*child*/)
 {
 }
 
@@ -1855,10 +1939,10 @@ void Element::ProcessDefaultAction(Event& event)
 			SetPseudoClass("hover", false);
 			break;
 		case EventId::Focus:
-			SetPseudoClass(FOCUS, true);
+			SetPseudoClass("focus", true);
 			break;
 		case EventId::Blur:
-			SetPseudoClass(FOCUS, false);
+			SetPseudoClass("focus", false);
 			break;
 		default:
 			break;
@@ -1924,6 +2008,25 @@ void Element::SetOwnerDocument(ElementDocument* document)
 	}
 }
 
+void Element::SetDataModel(DataModel* new_data_model) 
+{
+	RMLUI_ASSERTMSG(!data_model || !new_data_model, "We must either attach a new data model, or detach the old one.");
+
+	if (data_model == new_data_model)
+		return;
+
+	if (data_model)
+		data_model->OnElementRemove(this);
+
+	data_model = new_data_model;
+
+	if (data_model)
+		ElementUtilities::ApplyDataViewsControllers(this);
+
+	for (ElementPtr& child : children)
+		child->SetDataModel(new_data_model);
+}
+
 void Element::Release()
 {
 	if (instancer)
@@ -1951,6 +2054,36 @@ void Element::SetParent(Element* _parent)
 		DirtyTransformState(true, true);
 
 	SetOwnerDocument(parent ? parent->GetOwnerDocument() : nullptr);
+
+	if (!parent)
+	{
+		if (data_model)
+			SetDataModel(nullptr);
+	}
+	else 
+	{
+		auto it = attributes.find("data-model");
+		if (it == attributes.end())
+		{
+			SetDataModel(parent->data_model);
+		}
+		else if (parent->data_model)
+		{
+			String name = it->second.Get<String>();
+			Log::Message(Log::LT_ERROR, "Nested data models are not allowed. Data model '%s' given in element %s.", name.c_str(), GetAddress().c_str());
+		}
+		else if (Context* context = GetContext())
+		{
+			String name = it->second.Get<String>();
+			if (DataModel* model = context->GetDataModelPtr(name))
+			{
+				model->AttachModelRootElement(this);
+				SetDataModel(model);
+			}
+			else
+				Log::Message(Log::LT_ERROR, "Could not locate data model '%s' in element %s.", name.c_str(), GetAddress().c_str());
+		}
+	}
 }
 
 void Element::DirtyOffset()
@@ -2048,7 +2181,7 @@ void Element::BuildStackingContext(ElementList* new_stacking_context)
 	// Build the list of ordered children. Our child list is sorted within the stacking context so stacked elements
 	// will render in the right order; ie, positioned elements will render on top of inline elements, which will render
 	// on top of floated elements, which will render on top of block elements.
-	std::vector< std::pair< Element*, float > > ordered_children;
+	Vector< Pair< Element*, float > > ordered_children;
 	for (size_t i = 0; i < children.size(); ++i)
 	{
 		Element* child = children[i].get();
@@ -2056,7 +2189,7 @@ void Element::BuildStackingContext(ElementList* new_stacking_context)
 		if (!child->IsVisible())
 			continue;
 
-		std::pair< Element*, float > ordered_child;
+		Pair< Element*, float > ordered_child;
 		ordered_child.first = child;
 
 		if (child->GetPosition() != Style::Position::Static)
@@ -2318,7 +2451,10 @@ void Element::HandleAnimationProperty()
 		bool element_has_animations = (!animation_list.empty() || !animations.empty());
 		StyleSheet* stylesheet = nullptr;
 
-		if (element_has_animations && (stylesheet = GetStyleSheet().get()))
+		if (element_has_animations)
+			stylesheet = GetStyleSheet().get();
+
+		if (stylesheet)
 		{
 			// Remove existing animations
 			{
@@ -2385,8 +2521,8 @@ void Element::AdvanceAnimations()
 		// Move all completed animations to the end of the list
 		auto it_completed = std::partition(animations.begin(), animations.end(), [](const ElementAnimation& animation) { return !animation.IsComplete(); });
 
-		std::vector<Dictionary> dictionary_list;
-		std::vector<bool> is_transition;
+		Vector<Dictionary> dictionary_list;
+		Vector<bool> is_transition;
 		dictionary_list.reserve(animations.end() - it_completed);
 		is_transition.reserve(animations.end() - it_completed);
 
@@ -2470,7 +2606,7 @@ void Element::UpdateTransformState()
 			);
 
 			if (!transform_state)
-				transform_state = std::make_unique<TransformState>();
+				transform_state = MakeUnique<TransformState>();
 
 			perspective_or_transform_changed |= transform_state->SetLocalPerspective(&perspective);
 		}
@@ -2498,14 +2634,10 @@ void Element::UpdateTransformState()
 			const int n = computed.transform->GetNumPrimitives();
 			for (int i = 0; i < n; ++i)
 			{
-				const Transforms::Primitive& primitive = computed.transform->GetPrimitive(i);
-
-				Matrix4f matrix;
-				if (primitive.ResolveTransform(matrix, *this))
-				{
-					transform *= matrix;
-					have_transform = true;
-				}
+				const TransformPrimitive& primitive = computed.transform->GetPrimitive(i);
+				Matrix4f matrix = TransformUtilities::ResolveTransform(primitive, *this);
+				transform *= matrix;
+				have_transform = true;
 			}
 
 			if(have_transform)
@@ -2555,7 +2687,7 @@ void Element::UpdateTransformState()
 		if (have_transform)
 		{
 			if (!transform_state)
-				transform_state = std::make_unique<TransformState>();
+				transform_state = MakeUnique<TransformState>();
 
 			perspective_or_transform_changed |= transform_state->SetTransform(&transform);
 		}
@@ -2579,5 +2711,4 @@ void Element::UpdateTransformState()
 	}
 }
 
-}
-}
+} // namespace Rml

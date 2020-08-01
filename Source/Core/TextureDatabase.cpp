@@ -33,7 +33,6 @@
 #include "../../Include/RmlUi/Core/SystemInterface.h"
 
 namespace Rml {
-namespace Core {
 
 static TextureDatabase* texture_database = nullptr;
 
@@ -75,7 +74,7 @@ SharedPtr<TextureResource> TextureDatabase::Fetch(const String& source, const St
 		return iterator->second;
 	}
 
-	auto resource = std::make_shared<TextureResource>();
+	auto resource = MakeShared<TextureResource>();
 	resource->Set(path);
 
 	texture_database->textures[resource->GetSource()] = resource;
@@ -106,5 +105,4 @@ void TextureDatabase::ReleaseTextures(RenderInterface* render_interface)
 	}
 }
 
-}
-}
+} // namespace Rml

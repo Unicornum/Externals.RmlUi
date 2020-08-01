@@ -35,7 +35,7 @@
 DecoratorInstancerDefender::DecoratorInstancerDefender()
 {
 	id_image_src = RegisterProperty("image-src", "").AddParser("string").GetId();
-	RegisterShorthand("decorator", "image-src", Rml::Core::ShorthandType::FallThrough);
+	RegisterShorthand("decorator", "image-src", Rml::ShorthandType::FallThrough);
 }
 
 DecoratorInstancerDefender::~DecoratorInstancerDefender()
@@ -43,17 +43,16 @@ DecoratorInstancerDefender::~DecoratorInstancerDefender()
 }
 
 // Instances a decorator given the property tag and attributes from the RCSS file.
-std::shared_ptr<Rml::Core::Decorator> DecoratorInstancerDefender::InstanceDecorator(const Rml::Core::String& RMLUI_UNUSED_PARAMETER(name), const Rml::Core::PropertyDictionary& properties, const Rml::Core::DecoratorInstancerInterface& interface)
+Rml::SharedPtr<Rml::Decorator> DecoratorInstancerDefender::InstanceDecorator(const Rml::String& /*name*/,
+	const Rml::PropertyDictionary& properties, const Rml::DecoratorInstancerInterface& /*interface*/)
 {
-	RMLUI_UNUSED(name);
-
-	const Rml::Core::Property* image_source_property = properties.GetProperty(id_image_src);
-	Rml::Core::String image_source = image_source_property->Get< Rml::Core::String >();
-	Rml::Core::String source_path;
+	const Rml::Property* image_source_property = properties.GetProperty(id_image_src);
+	Rml::String image_source = image_source_property->Get< Rml::String >();
+	Rml::String source_path;
 	if (auto & source = image_source_property->source)
 		source_path = source->path;
 
-	auto decorator = std::make_shared<DecoratorDefender>();
+	auto decorator = Rml::MakeShared<DecoratorDefender>();
 	if (decorator->Initialise(image_source, source_path))
 		return decorator;
 	

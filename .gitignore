@@ -2,11 +2,13 @@
 /Build/
 
 # Other common build targets
-/build/
+/build*/
+/Build*/
 /Bin/
 /bin/
 /Lib/
 /lib/
+/out/
 
 # Distribution target
 /Distribution/
@@ -22,3 +24,4 @@
 *.dir/
 Win32/
 x64/
+CMakeSettings.json

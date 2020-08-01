@@ -26,10 +26,17 @@
  *
  */
 
-#ifndef INPUTX11_H
-#define INPUTX11_H
+#ifndef RMLUI_SHELL_X11_INPUTX11_H
+#define RMLUI_SHELL_X11_INPUTX11_H
 
 #include <X11/Xlib.h>
+
+// The None define from X.h conflicts with RmlUi code base,
+// use the constant 0L instead where necessary
+#ifdef None
+  #undef None
+#endif
+
 #include "Input.h"
 
 /**

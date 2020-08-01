@@ -29,6 +29,7 @@
 #include "ElementInfo.h"
 #include "../../Include/RmlUi/Core/Core.h"
 #include "../../Include/RmlUi/Core/ElementUtilities.h"
+#include "../../Include/RmlUi/Core/ElementText.h"
 #include "../../Include/RmlUi/Core/Factory.h"
 #include "../../Include/RmlUi/Core/Property.h"
 #include "../../Include/RmlUi/Core/PropertiesIteratorView.h"
@@ -43,71 +44,7 @@
 namespace Rml {
 namespace Debugger {
 
-static Core::String PrettyFormatNumbers(const Core::String& in_string)
-{
-	// Removes trailing zeros and truncates decimal digits to the specified number of significant digits.
-	constexpr int num_significant_digits = 4;
-
-	Core::String string = in_string;
-
-	if (string.empty())
-		return string;
-
-	// First, check for a decimal point. No point, no chance of trailing zeroes!
-	size_t decimal_point_position = 0;
-
-	while ((decimal_point_position = string.find('.', decimal_point_position + 1)) != Core::String::npos)
-	{
-		// Find the left-most digit.
-		int pos_left = (int)decimal_point_position - 1; // non-inclusive
-		while (pos_left >= 0 && string[pos_left] >= '0' && string[pos_left] <= '9')
-			pos_left--;
-
-		// Significant digits left of the decimal point. We also consider all zero digits significant on the left side.
-		const int significant_left = (int)decimal_point_position - (pos_left + 1);
-
-		// Let's not touch numbers that don't start with a digit before the decimal.
-		if (significant_left == 0)
-			continue;
-
-		const int max_significant_right = std::max(num_significant_digits - significant_left, 0);
-
-		// Find the right-most digit and number of non-zero digits less than our maximum.
-		int pos_right = (int)decimal_point_position + 1; // non-inclusive
-		int significant_right = 0;
-		while (pos_right < (int)string.size() && string[pos_right] >= '0' && string[pos_right] <= '9')
-		{
-			const int current_digit_right = pos_right - (int)decimal_point_position;
-			if (string[pos_right] != '0' && current_digit_right <= max_significant_right)
-				significant_right = current_digit_right;
-			pos_right++;
-		}
-
-		size_t pos_cut_start = decimal_point_position + (size_t)(significant_right + 1);
-		size_t pos_cut_end = (size_t)pos_right;
-
-		// Remove the decimal point if we don't have any right digits.
-		if (pos_cut_start == decimal_point_position + 1)
-			pos_cut_start = decimal_point_position;
-
-		string.erase(string.begin() + pos_cut_start, string.begin() + pos_cut_end);
-	}
-
-	return string;
-}
-
-#ifdef RMLUI_DEBUG
-static bool TestPrettyFormat(Core::String original, Core::String should_be)
-{
-	Core::String formatted = PrettyFormatNumbers(original);
-	bool result = (formatted == should_be);
-	if (!result)
-		Core::Log::Message(Core::Log::LT_ERROR, "Remove trailing string failed. PrettyFormatNumbers('%s') == '%s' != '%s'", original.c_str(), formatted.c_str(), should_be.c_str());
-	return result;
-}
-#endif
-
-ElementInfo::ElementInfo(const Core::String& tag) : Core::ElementDocument(tag)
+ElementInfo::ElementInfo(const String& tag) : ElementDocument(tag)
 {
 	hover_element = nullptr;
 	source_element = nullptr;
@@ -117,25 +54,6 @@ ElementInfo::ElementInfo(const Core::String& tag) : Core::ElementDocument(tag)
 	force_update_once = false;
 	title_dirty = true;
 	previous_update_time = 0.0;
-
-	RMLUI_ASSERT(TestPrettyFormat("0.15", "0.15"));
-	RMLUI_ASSERT(TestPrettyFormat("0.150", "0.15"));
-	RMLUI_ASSERT(TestPrettyFormat("1.15", "1.15"));
-	RMLUI_ASSERT(TestPrettyFormat("1.150", "1.15"));
-	RMLUI_ASSERT(TestPrettyFormat("123.15", "123.1"));
-	RMLUI_ASSERT(TestPrettyFormat("1234.5", "1234"));
-	RMLUI_ASSERT(TestPrettyFormat("12.15", "12.15"));
-	RMLUI_ASSERT(TestPrettyFormat("12.154", "12.15"));
-	RMLUI_ASSERT(TestPrettyFormat("12.154666", "12.15"));
-	RMLUI_ASSERT(TestPrettyFormat("15889", "15889"));
-	RMLUI_ASSERT(TestPrettyFormat("15889.1", "15889"));
-	RMLUI_ASSERT(TestPrettyFormat("0.00660", "0.006"));
-	RMLUI_ASSERT(TestPrettyFormat("0.000001", "0"));
-	RMLUI_ASSERT(TestPrettyFormat("0.00000100", "0"));
-	RMLUI_ASSERT(TestPrettyFormat("a .", "a ."));
-	RMLUI_ASSERT(TestPrettyFormat("a .0", "a .0"));
-	RMLUI_ASSERT(TestPrettyFormat("a 0.0", "a 0"));
-	RMLUI_ASSERT(TestPrettyFormat("hello.world: 14.5600 1.1 0.55623 more.values: 0.1544 0.", "hello.world: 14.56 1.1 0.556 more.values: 0.154 0"));
 }
 
 ElementInfo::~ElementInfo()
@@ -148,11 +66,11 @@ bool ElementInfo::Initialise()
 	SetInnerRML(info_rml);
 	SetId("rmlui-debug-info");
 
-	AddEventListener(Core::EventId::Click, this);
-	AddEventListener(Core::EventId::Mouseover, this);
-	AddEventListener(Core::EventId::Mouseout, this);
+	AddEventListener(EventId::Click, this);
+	AddEventListener(EventId::Mouseover, this);
+	AddEventListener(EventId::Mouseout, this);
 
-	Core::SharedPtr<Core::StyleSheet> style_sheet = Core::Factory::InstanceStyleSheetString(Core::String(common_rcss) + Core::String(info_rcss));
+	SharedPtr<StyleSheet> style_sheet = Factory::InstanceStyleSheetString(String(common_rcss) + String(info_rcss));
 	if (!style_sheet)
 		return false;
 
@@ -174,7 +92,7 @@ void ElementInfo::OnUpdate()
 {
 	if (source_element && (update_source_element || force_update_once) && IsVisible())
 	{
-		const double t = Core::GetSystemInterface()->GetElapsedTime();
+		const double t = GetSystemInterface()->GetElapsedTime();
 		const float dt = (float)(t - previous_update_time);
 
 		constexpr float update_interval = 0.3f;
@@ -202,7 +120,7 @@ void ElementInfo::OnUpdate()
 }
 
 // Called when an element is destroyed.
-void ElementInfo::OnElementDestroy(Core::Element* element)
+void ElementInfo::OnElementDestroy(Element* element)
 {
 	if (hover_element == element)
 		hover_element = nullptr;
@@ -215,17 +133,17 @@ void ElementInfo::RenderHoverElement()
 {
 	if (hover_element)
 	{
-		Core::ElementUtilities::ApplyTransform(*hover_element);
+		ElementUtilities::ApplyTransform(*hover_element);
 		for (int i = 0; i < hover_element->GetNumBoxes(); i++)
 		{
 			// Render the content area.
-			const Core::Box element_box = hover_element->GetBox(i);
-			Core::Vector2f size = element_box.GetSize(Core::Box::BORDER);
-			size = Core::Vector2f(std::max(size.x, 2.0f), std::max(size.y, 2.0f));
+			const Box element_box = hover_element->GetBox(i);
+			Vector2f size = element_box.GetSize(Box::BORDER);
+			size = Vector2f(std::max(size.x, 2.0f), std::max(size.y, 2.0f));
 			Geometry::RenderOutline(
-				hover_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::BORDER), 
+				hover_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::BORDER), 
 				size,
-				Core::Colourb(255, 0, 0, 255), 
+				Colourb(255, 0, 0, 255), 
 				1
 			);
 		}
@@ -236,45 +154,45 @@ void ElementInfo::RenderSourceElement()
 {
 	if (source_element && show_source_element)
 	{
-		Core::ElementUtilities::ApplyTransform(*source_element);
+		ElementUtilities::ApplyTransform(*source_element);
 
 		for (int i = 0; i < source_element->GetNumBoxes(); i++)
 		{
-			const Core::Box element_box = source_element->GetBox(i);
+			const Box element_box = source_element->GetBox(i);
 
 			// Content area:
-			Geometry::RenderBox(source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::CONTENT), element_box.GetSize(), Core::Colourb(158, 214, 237, 128));
+			Geometry::RenderBox(source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::CONTENT), element_box.GetSize(), Colourb(158, 214, 237, 128));
 
 			// Padding area:
-			Geometry::RenderBox(source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::PADDING), element_box.GetSize(Core::Box::PADDING), source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::CONTENT), element_box.GetSize(), Core::Colourb(135, 122, 214, 128));
+			Geometry::RenderBox(source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::PADDING), element_box.GetSize(Box::PADDING), source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::CONTENT), element_box.GetSize(), Colourb(135, 122, 214, 128));
 
 			// Border area:
-			Geometry::RenderBox(source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::BORDER), element_box.GetSize(Core::Box::BORDER), source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::PADDING), element_box.GetSize(Core::Box::PADDING), Core::Colourb(133, 133, 133, 128));
+			Geometry::RenderBox(source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::BORDER), element_box.GetSize(Box::BORDER), source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::PADDING), element_box.GetSize(Box::PADDING), Colourb(133, 133, 133, 128));
 
 			// Border area:
-			Geometry::RenderBox(source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::MARGIN), element_box.GetSize(Core::Box::MARGIN), source_element->GetAbsoluteOffset(Core::Box::BORDER) + element_box.GetPosition(Core::Box::BORDER), element_box.GetSize(Core::Box::BORDER), Core::Colourb(240, 255, 131, 128));
+			Geometry::RenderBox(source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::MARGIN), element_box.GetSize(Box::MARGIN), source_element->GetAbsoluteOffset(Box::BORDER) + element_box.GetPosition(Box::BORDER), element_box.GetSize(Box::BORDER), Colourb(240, 255, 131, 128));
 		}
 	}
 }
 
-void ElementInfo::ProcessEvent(Core::Event& event)
+void ElementInfo::ProcessEvent(Event& event)
 {
 	// Only process events if we're visible
 	if (IsVisible())
 	{
-		if (event == Core::EventId::Click)
+		if (event == EventId::Click)
 		{
-			Core::Element* target_element = event.GetTargetElement();
+			Element* target_element = event.GetTargetElement();
 
 			// Deal with clicks on our own elements differently.
 			if (target_element->GetOwnerDocument() == this)
 			{
-				const Core::String& id = event.GetTargetElement()->GetId();
+				const String& id = event.GetTargetElement()->GetId();
 				
 				if (id == "close_button")
 				{
 					if (IsVisible())
-						SetProperty(Core::PropertyId::Visibility, Core::Property(Core::Style::Visibility::Hidden));
+						SetProperty(PropertyId::Visibility, Property(Style::Visibility::Hidden));
 				}
 				else if (id == "update_source")
 				{
@@ -293,7 +211,7 @@ void ElementInfo::ProcessEvent(Core::Event& event)
 				}
 				else if (target_element->GetTagName() == "pseudo" && source_element)
 				{
-					const Core::String name = target_element->GetAttribute<Core::String>("name", "");
+					const String name = target_element->GetAttribute<String>("name", "");
 					
 					if (!name.empty())
 					{
@@ -319,7 +237,7 @@ void ElementInfo::ProcessEvent(Core::Event& event)
 					int element_index;
 					if (sscanf(target_element->GetId().c_str(), "a %d", &element_index) == 1)
 					{
-						Core::Element* new_source_element = source_element;
+						Element* new_source_element = source_element;
 						for (int i = 0; i < element_index; i++)
 						{
 							if (new_source_element != nullptr)
@@ -338,7 +256,7 @@ void ElementInfo::ProcessEvent(Core::Event& event)
 			// Otherwise we just want to focus on the clicked element (unless it's on a debug element)
 			else if (enable_element_select && target_element->GetOwnerDocument() != nullptr && !IsDebuggerElement(target_element))
 			{
-				Core::Element* new_source_element = target_element;
+				Element* new_source_element = target_element;
 				if (new_source_element != source_element)
 				{
 					SetSourceElement(new_source_element);
@@ -346,14 +264,14 @@ void ElementInfo::ProcessEvent(Core::Event& event)
 				}
 			}
 		}
-		else if (event == Core::EventId::Mouseover)
+		else if (event == EventId::Mouseover)
 		{
-			Core::Element* target_element = event.GetTargetElement();
-			Core::ElementDocument* owner_document = target_element->GetOwnerDocument();
+			Element* target_element = event.GetTargetElement();
+			ElementDocument* owner_document = target_element->GetOwnerDocument();
 			if (owner_document == this)
 			{
 				// Check if the id is in the form "a %d" or "c %d" - these are the ancestor or child labels.
-				const Core::String& id = target_element->GetId();
+				const String& id = target_element->GetId();
 				int element_index;
 				if (sscanf(id.c_str(), "a %d", &element_index) == 1)
 				{
@@ -391,13 +309,13 @@ void ElementInfo::ProcessEvent(Core::Event& event)
 				hover_element = target_element;
 			}
 		}
-		else if (event == Core::EventId::Mouseout)
+		else if (event == EventId::Mouseout)
 		{
-			Core::Element* target_element = event.GetTargetElement();
-			Core::ElementDocument* owner_document = target_element->GetOwnerDocument();
+			Element* target_element = event.GetTargetElement();
+			ElementDocument* owner_document = target_element->GetOwnerDocument();
 			if (owner_document == this)
 			{
-				const Core::String& id = target_element->GetId();
+				const String& id = target_element->GetId();
 				if (id == "show_source")
 				{
 					// Disable the preview of the source element view
@@ -414,7 +332,7 @@ void ElementInfo::ProcessEvent(Core::Event& event)
 	}
 }
 
-void ElementInfo::SetSourceElement(Core::Element* new_source_element)
+void ElementInfo::SetSourceElement(Element* new_source_element)
 {
 	source_element = new_source_element;
 	force_update_once = true;
@@ -422,13 +340,13 @@ void ElementInfo::SetSourceElement(Core::Element* new_source_element)
 
 void ElementInfo::UpdateSourceElement()
 {
-	previous_update_time = Core::GetSystemInterface()->GetElapsedTime();
+	previous_update_time = GetSystemInterface()->GetElapsedTime();
 	title_dirty = true;
 
 	// Set the pseudo classes
-	if (Core::Element* pseudo = GetElementById("pseudo"))
+	if (Element* pseudo = GetElementById("pseudo"))
 	{
-		Core::PseudoClassList list;
+		PseudoClassList list;
 		if (source_element)
 			list = source_element->GetActivePseudoClasses();
 
@@ -437,7 +355,7 @@ void ElementInfo::UpdateSourceElement()
 		for (int i = 0; i < pseudo->GetNumChildren(); i++)
 		{
 			Element* child = pseudo->GetChild(i);
-			const Core::String name = child->GetAttribute<Core::String>("name", "");
+			const String name = child->GetAttribute<String>("name", "");
 
 			if (!name.empty())
 			{
@@ -450,7 +368,7 @@ void ElementInfo::UpdateSourceElement()
 				for (int j = 0; j < child->GetNumChildren(); j++)
 				{
 					Element* grandchild = child->GetChild(j);
-					const Core::String grandchild_name = grandchild->GetAttribute<Core::String>("name", "");
+					const String grandchild_name = grandchild->GetAttribute<String>("name", "");
 					bool active = (list.erase(grandchild_name) == 1);
 					if(!active)
 						child->RemoveChild(grandchild);
@@ -458,7 +376,7 @@ void ElementInfo::UpdateSourceElement()
 				// Finally, create new pseudo buttons for the rest of the active pseudo classes.
 				for (auto& extra_pseudo : list)
 				{
-					Core::Element* grandchild = child->AppendChild(CreateElement("pseudo"));
+					Element* grandchild = child->AppendChild(CreateElement("pseudo"));
 					grandchild->SetClass("active", true);
 					grandchild->SetAttribute("name", extra_pseudo);
 					grandchild->SetInnerRML(":" + extra_pseudo);
@@ -468,15 +386,15 @@ void ElementInfo::UpdateSourceElement()
 	}
 
 	// Set the attributes
-	if (Core::Element* attributes_content = GetElementById("attributes-content"))
+	if (Element* attributes_content = GetElementById("attributes-content"))
 	{
-		Core::String attributes;
+		String attributes;
 
 		if (source_element != nullptr)
 		{
 			{
-				Core::String name;
-				Core::String value;
+				String name;
+				String value;
 
 				// The element's attribute list is not always synchronized with its internal values, fetch  
 				// them manually here (see e.g. Element::OnAttributeChange for relevant attributes)
@@ -484,13 +402,13 @@ void ElementInfo::UpdateSourceElement()
 					name = "id";
 					value = source_element->GetId();
 					if (!value.empty())
-						attributes += Core::CreateString(name.size() + value.size() + 32, "%s: <em>%s</em><br />", name.c_str(), value.c_str());
+						attributes += CreateString(name.size() + value.size() + 32, "%s: <em>%s</em><br />", name.c_str(), value.c_str());
 				}
 				{
 					name = "class";
 					value = source_element->GetClassNames();
 					if (!value.empty())
-						attributes += Core::CreateString(name.size() + value.size() + 32, "%s: <em>%s</em><br />", name.c_str(), value.c_str());
+						attributes += CreateString(name.size() + value.size() + 32, "%s: <em>%s</em><br />", name.c_str(), value.c_str());
 				}
 			}
 
@@ -498,9 +416,16 @@ void ElementInfo::UpdateSourceElement()
 			{
 				auto& name = pair.first;
 				auto& variant = pair.second;
-				Core::String value = Core::StringUtilities::EncodeRml(variant.Get<Core::String>());
+				String value = StringUtilities::EncodeRml(variant.Get<String>());
 				if(name != "class" && name != "style" && name != "id") 
-					attributes += Core::CreateString(name.size() + value.size() + 32, "%s: <em>%s</em><br />", name.c_str(), value.c_str());
+					attributes += CreateString(name.size() + value.size() + 32, "%s: <em>%s</em><br />", name.c_str(), value.c_str());
+			}
+
+			// Text is not an attribute but useful nonetheless
+			if (auto text_element = rmlui_dynamic_cast<ElementText*>(source_element))
+			{
+				const String& text_content = text_element->GetText();
+				attributes += CreateString(text_content.size() + 32, "Text: <em>%s</em><br />", text_content.c_str());
 			}
 		}
 
@@ -518,9 +443,9 @@ void ElementInfo::UpdateSourceElement()
 	}
 
 	// Set the properties
-	if (Core::Element* properties_content = GetElementById("properties-content"))
+	if (Element* properties_content = GetElementById("properties-content"))
 	{
-		Core::String properties;
+		String properties;
 		if (source_element != nullptr)
 			BuildElementPropertiesRML(properties, source_element, source_element);
 
@@ -538,9 +463,9 @@ void ElementInfo::UpdateSourceElement()
 	}
 
 	// Set the events
-	if (Core::Element* events_content = GetElementById("events-content"))
+	if (Element* events_content = GetElementById("events-content"))
 	{
-		Core::String events;
+		String events;
 
 		if (source_element != nullptr)
 		{
@@ -561,23 +486,21 @@ void ElementInfo::UpdateSourceElement()
 	}
 
 	// Set the position
-	if (Core::Element* position_content = GetElementById("position-content"))
+	if (Element* position_content = GetElementById("position-content"))
 	{
 		// left, top, width, height.
 		if (source_element != nullptr)
 		{
-			Core::Vector2f element_offset = source_element->GetRelativeOffset(Core::Box::BORDER);
-			Core::Vector2f element_size = source_element->GetBox().GetSize(Core::Box::BORDER);
+			const Vector2f element_offset = source_element->GetRelativeOffset(Box::BORDER);
+			const Vector2f element_size = source_element->GetBox().GetSize(Box::BORDER);
 
-			Core::String positions = Core::CreateString(400, R"(
-				<span class='name'>left: </span><em>%fpx</em><br/>
-				<span class='name'>top: </span><em>%fpx</em><br/>
-				<span class='name'>width: </span><em>%fpx</em><br/>
-				<span class='name'>height: </span><em>%fpx</em><br/>)",
-				element_offset.x, element_offset.y, element_size.x, element_size.y
-			);
+			const String positions = 
+				"<span class='name'>left: </span><em>"   + ToString(element_offset.x) + "px</em><br/>" +
+				"<span class='name'>top: </span><em>"    + ToString(element_offset.y) + "px</em><br/>" +
+				"<span class='name'>width: </span><em>"  + ToString(element_size.x)   + "px</em><br/>" +
+				"<span class='name'>height: </span><em>" + ToString(element_size.y)   + "px</em><br/>";
 
-			position_content->SetInnerRML( PrettyFormatNumbers(positions) );
+			position_content->SetInnerRML( positions );
 		}
 		else
 		{
@@ -587,18 +510,18 @@ void ElementInfo::UpdateSourceElement()
 	}
 
 	// Set the ancestors
-	if (Core::Element* ancestors_content = GetElementById("ancestors-content"))
+	if (Element* ancestors_content = GetElementById("ancestors-content"))
 	{
-		Core::String ancestors;
-		Core::Element* element_ancestor = nullptr;
+		String ancestors;
+		Element* element_ancestor = nullptr;
 		if (source_element != nullptr)
 			element_ancestor = source_element->GetParentNode();
 
 		int ancestor_depth = 1;
 		while (element_ancestor)
 		{
-			Core::String ancestor_name = element_ancestor->GetAddress(false, false);
-			ancestors += Core::CreateString(ancestor_name.size() + 32, "<p id=\"a %d\">%s</p>", ancestor_depth, ancestor_name.c_str());
+			String ancestor_name = element_ancestor->GetAddress(false, false);
+			ancestors += CreateString(ancestor_name.size() + 32, "<p id=\"a %d\">%s</p>", ancestor_depth, ancestor_name.c_str());
 			element_ancestor = element_ancestor->GetParentNode();
 			ancestor_depth++;
 		}
@@ -617,23 +540,23 @@ void ElementInfo::UpdateSourceElement()
 	}
 
 	// Set the children
-	if (Core::Element* children_content = GetElementById("children-content"))
+	if (Element* children_content = GetElementById("children-content"))
 	{
-		Core::String children;
+		String children;
 		if (source_element != nullptr)
 		{
 			const int num_dom_children = (source_element->GetNumChildren(false));
 
 			for (int i = 0; i < source_element->GetNumChildren(true); i++)
 			{
-				Core::Element* child = source_element->GetChild(i);
+				Element* child = source_element->GetChild(i);
 
 				// If this is a debugger document, do not show it.
 				if (IsDebuggerElement(child))
 					continue;
 
-				Core::String child_name = child->GetTagName();
-				const Core::String child_id = child->GetId();
+				String child_name = child->GetTagName();
+				const String child_id = child->GetId();
 				if (!child_id.empty())
 				{
 					child_name += "#";
@@ -641,7 +564,7 @@ void ElementInfo::UpdateSourceElement()
 				}
 				const char* non_dom_string = (i >= num_dom_children ? " class=\"non_dom\"" : "");
 
-				children += Core::CreateString(child_name.size() + 40, "<p id=\"c %d\"%s>%s</p>", i, non_dom_string, child_name.c_str());
+				children += CreateString(child_name.size() + 40, "<p id=\"c %d\"%s>%s</p>", i, non_dom_string, child_name.c_str());
 			}
 		}
 
@@ -659,15 +582,15 @@ void ElementInfo::UpdateSourceElement()
 	}
 }
 
-void ElementInfo::BuildElementPropertiesRML(Core::String& property_rml, Core::Element* element, Core::Element* primary_element)
+void ElementInfo::BuildElementPropertiesRML(String& property_rml, Element* element, Element* primary_element)
 {
 	NamedPropertyList property_list;
 
 	for(auto it = element->IterateLocalProperties(); !it.AtEnd(); ++it)
 	{
-		Core::PropertyId property_id = it.GetId();
-		const Core::String& property_name = it.GetName();
-		const Core::Property* prop = &it.GetProperty();
+		PropertyId property_id = it.GetId();
+		const String& property_name = it.GetName();
+		const Property* prop = &it.GetProperty();
 
 		// Check that this property isn't overridden or just not inherited.
 		if (primary_element->GetProperty(property_id) != prop)
@@ -692,7 +615,7 @@ void ElementInfo::BuildElementPropertiesRML(Core::String& property_rml, Core::El
 			property_rml += "<h3 class='strong'>inherited from " + element->GetAddress(false, false) + "</h3>";
 		}
 
-		const Core::PropertySource* previous_source = nullptr;
+		const PropertySource* previous_source = nullptr;
 		bool first_iteration = true;
 
 		for (auto& named_property : property_list)
@@ -706,8 +629,8 @@ void ElementInfo::BuildElementPropertiesRML(Core::String& property_rml, Core::El
 				// Print the rule name header.
 				if(source)
 				{
-					Core::String str_line_number;
-					Core::TypeConverter<int, Core::String>::Convert(source->line_number, str_line_number);
+					String str_line_number;
+					TypeConverter<int, String>::Convert(source->line_number, str_line_number);
 					property_rml += "<h3>" + source->rule_name + "</h3>";
 					property_rml += "<h4>" + source->path + " : " + str_line_number + "</h4>";
 				}
@@ -725,9 +648,9 @@ void ElementInfo::BuildElementPropertiesRML(Core::String& property_rml, Core::El
 		BuildElementPropertiesRML(property_rml, element->GetParentNode(), primary_element);
 }
 
-void ElementInfo::BuildPropertyRML(Core::String& property_rml, const Core::String& name, const Core::Property* property)
+void ElementInfo::BuildPropertyRML(String& property_rml, const String& name, const Property* property)
 {
-	Core::String property_value = PrettyFormatNumbers(property->ToString());
+	const String property_value = property->ToString();
 
 	property_rml += "<span class='name'>" + name + "</span>: " + property_value + "<br/>";
 }
@@ -755,7 +678,7 @@ void ElementInfo::UpdateTitle()
 }
 
 
-bool ElementInfo::IsDebuggerElement(Core::Element* element)
+bool ElementInfo::IsDebuggerElement(Element* element)
 {
 	return element->GetOwnerDocument()->GetId().find("rmlui-debug-") == 0;
 }

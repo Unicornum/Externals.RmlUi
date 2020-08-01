@@ -26,14 +26,13 @@
  *
  */
 
-#ifndef RMLUICOREELEMENTUTILITIES_H
-#define RMLUICOREELEMENTUTILITIES_H
+#ifndef RMLUI_CORE_ELEMENTUTILITIES_H
+#define RMLUI_CORE_ELEMENTUTILITIES_H
 
 #include "Header.h"
 #include "Types.h"
 
 namespace Rml {
-namespace Core {
 
 class Box;
 class Context;
@@ -131,10 +130,18 @@ public:
 	/// Note: All calls to RenderInterface::SetTransform must go through here.
 	/// @param[in] element		The element whose transform to apply.
 	/// @return true if a render interface is available to set the transform.
-	static bool ApplyTransform(Element &element);
+	static bool ApplyTransform(Element& element);
+
+	/// Creates data views and data controllers if a data model applies to the element.
+	/// Attributes such as 'data-' are used to create the views and controllers.
+	/// @return True if a data view or controller was constructed.
+	static bool ApplyDataViewsControllers(Element* element);
+
+	/// Creates data views that use a raw inner xml content string to construct child elements.
+	/// Right now, this only applies to the 'data-for' view.
+	/// @return True if a data view was constructed.
+	static bool ApplyStructuralDataViews(Element* element, const String& inner_rml);
 };
 
-}
-}
-
+} // namespace Rml
 #endif

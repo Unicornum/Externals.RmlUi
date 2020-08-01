@@ -33,7 +33,6 @@
 #include "../../Include/RmlUi/Core/Profiling.h"
 
 namespace Rml {
-namespace Core {
 
 TextureResource::TextureResource()
 {
@@ -54,7 +53,7 @@ void TextureResource::Set(const String& name, const TextureCallback& callback)
 {
 	Reset();
 	source = name;
-	texture_callback = std::make_unique<TextureCallback>(callback);
+	texture_callback = MakeUnique<TextureCallback>(callback);
 	TextureDatabase::AddCallbackTexture(this);
 }
 
@@ -182,5 +181,4 @@ bool TextureResource::Load(RenderInterface* render_interface)
 	return true;
 }
 
-}
-}
+} // namespace Rml

@@ -45,25 +45,37 @@
 #include <Shell.h>
 #include <ShellFileInterface.h>
 
-int main(int argc, char **argv)
-{
 #ifdef RMLUI_PLATFORM_WIN32
-        AllocConsole();
+#include <windows.h>
 #endif
 
-        int window_width = 1024;
-        int window_height = 768;
+float multiplier = 1.f;
 
-	sf::RenderWindow MyWindow(sf::VideoMode(window_width, window_height), "RmlUi with SFML2", sf::Style::Close);
+void updateView(sf::RenderWindow& window, sf::View& view)
+{
+	view.reset(sf::FloatRect(0.f, 0.f, window.getSize().x * multiplier, window.getSize().y * multiplier));
+	window.setView(view);
+}
+
+int main(int /*argc*/, char** /*argv*/)
+{
+#ifdef RMLUI_PLATFORM_WIN32
+	AllocConsole();
+#endif
+
+	int window_width = 1024;
+	int window_height = 768;
+
+	sf::RenderWindow MyWindow(sf::VideoMode(window_width, window_height), "RmlUi with SFML2");
 	MyWindow.setVerticalSyncEnabled(true);
 
 #ifdef ENABLE_GLEW
 	GLenum err = glewInit();
 	if (GLEW_OK != err)
 	{
-	  /* Problem: glewInit failed, something is seriously wrong. */
-	  fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
-	  //...
+		/* Problem: glewInit failed, something is seriously wrong. */
+		fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
+		//...
 	}
 	fprintf(stdout, "Status: Using GLEW %s\n", glewGetString(GLEW_VERSION));
 #endif
@@ -73,35 +85,38 @@ int main(int argc, char **argv)
 
 	// NOTE: if fonts and rml are not found you'll probably have to adjust
 	// the path information in the string
-	Rml::Core::String root = Shell::FindSamplesRoot();
+	Rml::String root = Shell::FindSamplesRoot();
 	ShellFileInterface FileInterface(root);
 
-	if(!MyWindow.isOpen())
+	if (!MyWindow.isOpen())
 		return 1;
+
+	sf::View view(sf::FloatRect(0.f, 0.f, (float)MyWindow.getSize().x, (float)MyWindow.getSize().y));
+	MyWindow.setView(view);
 
 	Renderer.SetWindow(&MyWindow);
 
-	Rml::Core::SetFileInterface(&FileInterface);
-	Rml::Core::SetRenderInterface(&Renderer);
-	Rml::Core::SetSystemInterface(&SystemInterface);
+	Rml::SetFileInterface(&FileInterface);
+	Rml::SetRenderInterface(&Renderer);
+	Rml::SetSystemInterface(&SystemInterface);
 
 
-	if(!Rml::Core::Initialise())
+	if (!Rml::Initialise())
 		return 1;
 
-	Rml::Core::LoadFontFace("assets/Delicious-Bold.otf");
-	Rml::Core::LoadFontFace("assets/Delicious-BoldItalic.otf");
-	Rml::Core::LoadFontFace("assets/Delicious-Italic.otf");
-	Rml::Core::LoadFontFace("assets/Delicious-Roman.otf");
+	Rml::LoadFontFace("assets/Delicious-Bold.otf");
+	Rml::LoadFontFace("assets/Delicious-BoldItalic.otf");
+	Rml::LoadFontFace("assets/Delicious-Italic.otf");
+	Rml::LoadFontFace("assets/Delicious-Roman.otf");
 
-	Rml::Core::Context *Context = Rml::Core::CreateContext("default",
-		Rml::Core::Vector2i(MyWindow.getSize().x, MyWindow.getSize().y));
+	Rml::Context* Context = Rml::CreateContext("default",
+		Rml::Vector2i(MyWindow.getSize().x, MyWindow.getSize().y));
 
 	Rml::Debugger::Initialise(Context);
 
-	Rml::Core::ElementDocument *Document = Context->LoadDocument("assets/demo.rml");
+	Rml::ElementDocument* Document = Context->LoadDocument("assets/demo.rml");
 
-	if(Document)
+	if (Document)
 	{
 		Document->Show();
 		fprintf(stdout, "\nDocument loaded");
@@ -111,57 +126,81 @@ int main(int argc, char **argv)
 		fprintf(stdout, "\nDocument is nullptr");
 	}
 
-	while(MyWindow.isOpen())
+	while (MyWindow.isOpen())
 	{
 		static sf::Event event;
 
 		MyWindow.clear();
+
+		sf::CircleShape circle(50.f);
+		circle.setPosition(100.f, 100.f);
+		circle.setFillColor(sf::Color::Blue);
+		circle.setOutlineColor(sf::Color::Red);
+		circle.setOutlineThickness(10.f);
+
+		MyWindow.draw(circle);
+
 		Context->Render();
 		MyWindow.display();
 
-		while(MyWindow.pollEvent(event))
+		while (MyWindow.pollEvent(event))
 		{
-			switch(event.type)
+			switch (event.type)
 			{
 			case sf::Event::Resized:
-				Renderer.Resize();
+				updateView(MyWindow, view);
 				break;
 			case sf::Event::MouseMoved:
 				Context->ProcessMouseMove(event.mouseMove.x, event.mouseMove.y,
-					SystemInterface.GetKeyModifiers(&MyWindow));
+					SystemInterface.GetKeyModifiers());
 				break;
 			case sf::Event::MouseButtonPressed:
 				Context->ProcessMouseButtonDown(event.mouseButton.button,
-					SystemInterface.GetKeyModifiers(&MyWindow));
+					SystemInterface.GetKeyModifiers());
 				break;
 			case sf::Event::MouseButtonReleased:
 				Context->ProcessMouseButtonUp(event.mouseButton.button,
-					SystemInterface.GetKeyModifiers(&MyWindow));
+					SystemInterface.GetKeyModifiers());
 				break;
 			case sf::Event::MouseWheelMoved:
-				Context->ProcessMouseWheel(-event.mouseWheel.delta,
-					SystemInterface.GetKeyModifiers(&MyWindow));
+				Context->ProcessMouseWheel(float(-event.mouseWheel.delta),
+					SystemInterface.GetKeyModifiers());
 				break;
 			case sf::Event::TextEntered:
 				if (event.text.unicode > 32)
-					Context->ProcessTextInput(event.text.unicode);
+					Context->ProcessTextInput(Rml::Character(event.text.unicode));
 				break;
 			case sf::Event::KeyPressed:
 				Context->ProcessKeyDown(SystemInterface.TranslateKey(event.key.code),
-					SystemInterface.GetKeyModifiers(&MyWindow));
+					SystemInterface.GetKeyModifiers());
 				break;
 			case sf::Event::KeyReleased:
-				if(event.key.code == sf::Keyboard::F8)
+				switch (event.key.code)
 				{
+				case sf::Keyboard::Num1:
+					multiplier = 2.f;
+					updateView(MyWindow, view);
+					break;
+				case sf::Keyboard::Num2:
+					multiplier = 1.f;
+					updateView(MyWindow, view);
+					break;
+				case sf::Keyboard::Num3:
+					multiplier = .5f;
+					updateView(MyWindow, view);
+					break;
+				case sf::Keyboard::F8:
 					Rml::Debugger::SetVisible(!Rml::Debugger::IsVisible());
-				};
-
-				if(event.key.code == sf::Keyboard::Escape) {
+					break;
+				case sf::Keyboard::Escape:
 					MyWindow.close();
+					break;
+				default:
+					break;
 				}
 
 				Context->ProcessKeyUp(SystemInterface.TranslateKey(event.key.code),
-					SystemInterface.GetKeyModifiers(&MyWindow));
+					SystemInterface.GetKeyModifiers());
 				break;
 			case sf::Event::Closed:
 				MyWindow.close();
@@ -174,7 +213,7 @@ int main(int argc, char **argv)
 		Context->Update();
 	};
 
-	Rml::Core::Shutdown();
+	Rml::Shutdown();
 
 	return 0;
-};
+}

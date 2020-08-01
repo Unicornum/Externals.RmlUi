@@ -33,6 +33,7 @@
 #include <x11/InputX11.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/xf86vmode.h>
+#include <X11/cursorfont.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
@@ -47,14 +48,22 @@
 static bool running = false;
 static int screen = -1;
 static timeval start_time;
-static Rml::Core::String clipboard_text;
+static Rml::String clipboard_text;
 
-static std::unique_ptr<ShellFileInterface> file_interface;
+static Rml::UniquePtr<ShellFileInterface> file_interface;
 
-static bool isDirectory(const Rml::Core::String &path)
+static Cursor cursor_default = 0;
+static Cursor cursor_move = 0;
+static Cursor cursor_pointer = 0;
+static Cursor cursor_resize = 0;
+static Cursor cursor_cross = 0;
+static Cursor cursor_text = 0;
+static Cursor cursor_unavailable = 0;
+
+static bool isRegularFile(const Rml::String& path)
 {
 	struct stat sb;
-	return (stat(path.c_str(), &sb)==0 && S_ISDIR(sb.st_mode));
+	return (stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode));
 }
 
 bool Shell::Initialise()
@@ -62,12 +71,13 @@ bool Shell::Initialise()
 	gettimeofday(&start_time, nullptr);
 	InputX11::Initialise();
 
-	Rml::Core::String root = FindSamplesRoot();
+	Rml::String root = FindSamplesRoot();
+	bool result = !root.empty();
 
-	file_interface = std::make_unique<ShellFileInterface>(root);
-	Rml::Core::SetFileInterface(file_interface.get());
+	file_interface = Rml::MakeUnique<ShellFileInterface>(root);
+	Rml::SetFileInterface(file_interface.get());
 
-	return true;
+	return result;
 }
 
 void Shell::Shutdown()
@@ -77,7 +87,7 @@ void Shell::Shutdown()
 	file_interface.reset();
 }
 
-Rml::Core::String Shell::FindSamplesRoot()
+Rml::String Shell::FindSamplesRoot()
 {
 	char executable_file_name[PATH_MAX];
 	ssize_t len = readlink("/proc/self/exe", executable_file_name, PATH_MAX);
@@ -88,21 +98,29 @@ Rml::Core::String Shell::FindSamplesRoot()
 		// readlink() does not append a null byte to buf.
 		executable_file_name[len] = 0;
 	}
-	Rml::Core::String executable_path = Rml::Core::String(executable_file_name);
+	Rml::String executable_path = Rml::String(executable_file_name);
 	executable_path = executable_path.substr(0, executable_path.rfind("/") + 1);
 	
-	// for "../Samples/" to be valid we must be in the Build directory.
-	// NOTE: we can't use "../../Samples/" because it is valid only if:
-	//  1. we are in the installation directory and
-	//  2. the installation directory is exactly "Samples" (case sensitive).
-	Rml::Core::String path = "../Samples/";
-	
-	if(!isDirectory(executable_path + path)) {
-		// we probably are in the installation directory, up by 1 should do.
-		path = "../";
+	// We assume we have found the correct path if we can find the lookup file from it.
+	const char* lookup_file = "assets/rml.rcss";
+
+	// For "../Samples/" to be valid we must be in the Build directory.
+	// If "../" is valid we are probably in the installation directory.
+	// Some build setups may nest the executables deeper in a build directory, try them last.
+	const char* candidate_paths[] = { "../Samples/", "../", "", "../../Samples/", "../../../Samples/"};
+
+	for (const char* relative_path : candidate_paths)
+	{
+		Rml::String absolute_path = executable_path + relative_path;
+		Rml::String absolute_lookup_file = absolute_path + lookup_file;
+
+		if (isRegularFile(absolute_lookup_file))
+		{
+			return absolute_path;
+		}
 	}
-	
-	return (executable_path + path);
+
+	return Rml::String();
 }
 
 static Display* display = nullptr;
@@ -198,6 +216,17 @@ bool Shell::OpenWindow(const char* name, ShellRenderInterfaceExtensions *_shell_
 			// Free the size buffer
 			XFree(win_size_hints);
 		}
+	}
+
+	{
+		// Create cursors
+		cursor_default = XCreateFontCursor(display, XC_left_ptr);;
+		cursor_move = XCreateFontCursor(display, XC_fleur);
+		cursor_pointer = XCreateFontCursor(display, XC_hand1);
+		cursor_resize = XCreateFontCursor(display, XC_sizing);
+		cursor_cross = XCreateFontCursor(display, XC_crosshair);
+		cursor_text = XCreateFontCursor(display, XC_xterm);
+		cursor_unavailable = XCreateFontCursor(display, XC_X_cursor);
 	}
 
 	// Set the window title and show the window.
@@ -342,18 +371,40 @@ double Shell::GetElapsedTime()
 	return result;
 }
 
-void Shell::SetMouseCursor(const Rml::Core::String& cursor_name)
+void Shell::SetMouseCursor(const Rml::String& cursor_name)
 {
-	// Not implemented
+	if (display && window)
+	{
+		Cursor cursor_handle = 0;
+		if (cursor_name.empty() || cursor_name == "arrow")
+			cursor_handle = cursor_default;
+		else if (cursor_name == "move")
+			cursor_handle = cursor_move;
+		else if (cursor_name == "pointer")
+			cursor_handle = cursor_pointer;
+		else if (cursor_name == "resize")
+			cursor_handle = cursor_resize;
+		else if (cursor_name == "cross")
+			cursor_handle = cursor_cross;
+		else if (cursor_name == "text")
+			cursor_handle = cursor_text;
+		else if (cursor_name == "unavailable")
+			cursor_handle = cursor_unavailable;
+
+		if (cursor_handle)
+		{
+			XDefineCursor(display, window, cursor_handle);
+		}
+	}
 }
 
-void Shell::SetClipboardText(const Rml::Core::String& text)
+void Shell::SetClipboardText(const Rml::String& text)
 {
 	// Todo: interface with system clipboard
 	clipboard_text = text;
 }
 
-void Shell::GetClipboardText(Rml::Core::String& text)
+void Shell::GetClipboardText(Rml::String& text)
 {
 	// Todo: interface with system clipboard
 	text = clipboard_text;

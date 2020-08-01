@@ -17,16 +17,16 @@ if(APPLE)
 			# set the architecture for iOS 
 			if (${IOS_PLATFORM} STREQUAL "OS")
 				set (IOS_ARCH armv6 armv7 armv7s arm64)
-				set (CMAKE_OSX_ARCHITECTURES ${IOS_ARCH} CACHE string  "Build architecture for iOS")
+				set (CMAKE_OSX_ARCHITECTURES ${IOS_ARCH} CACHE STRING  "Build architecture for iOS")
 			else (${IOS_PLATFORM} STREQUAL "OS")
 				set (IOS_ARCH x86_64)
-				set (CMAKE_OSX_ARCHITECTURES ${IOS_ARCH} CACHE string  "Build architecture for iOS Simulator")
+				set (CMAKE_OSX_ARCHITECTURES ${IOS_ARCH} CACHE STRING  "Build architecture for iOS Simulator")
 			endif (${IOS_PLATFORM} STREQUAL "OS")
 
 		else(IOS)
 			# set the architectures for OS X
 			set (OSXI_ARCH x86_64)
-			set (CMAKE_OSX_ARCHITECTURES ${OSXI_ARCH} CACHE string  "Build architecture for OS X universal binaries")		
+			set (CMAKE_OSX_ARCHITECTURES ${OSXI_ARCH} CACHE STRING  "Build architecture for OS X universal binaries")
 		endif(IOS)
 	endif (NOT CMAKE_OSX_ARCHITECTURES AND BUILD_UNIVERSAL_BINARIES)
 endif(APPLE)
@@ -53,7 +53,11 @@ if(POLICY CMP0074)
 	cmake_policy(SET CMP0074 NEW)
 endif(POLICY CMP0074)
 
-project(RmlUi LANGUAGES C CXX VERSION 3.3)
+project(RmlUi LANGUAGES C CXX VERSION 4.0)
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(RMLUI_VERSION_RELEASE false)
 
@@ -104,6 +108,10 @@ if(NOT DEFINED ENV{SFML_ROOT})
 	set(ENV{SFML_ROOT} "${PROJECT_SOURCE_DIR}/Dependencies")
 endif()
 
+if(NOT DEFINED ENV{TRACY_DIR})
+	set(ENV{TRACY_DIR} "${PROJECT_SOURCE_DIR}/Dependencies")
+endif()
+
 #===================================
 # Plaform specific global hacks ====
 #===================================
@@ -136,6 +144,8 @@ if(APPLE)
 endif()
 
 option(BUILD_SAMPLES "Build samples" OFF)
+
+option(MATRIX_ROW_MAJOR "Use row-major matrices. Column-major matrices are used by default." OFF)
 
 if(APPLE)
 	if(IOS)
@@ -174,9 +184,54 @@ if( NO_THIRDPARTY_CONTAINERS )
 	message("-- No third-party containers will be used: Make sure to #define RMLUI_NO_THIRDPARTY_CONTAINERS before including RmlUi in your project.")
 endif()
 
-option(ENABLE_TRACY_PROFILING "Enable tracy profiling, requires that Tracy is placed in Dependencies/tracy." OFF)
+option(CUSTOM_CONFIGURATION "Customize RmlUi configuration files for overriding the default configuration and types." OFF)
+
+set(CUSTOM_CONFIGURATION_FILE "" CACHE STRING "Custom configuration file to be included in place of <RmlUi/Config/Config.h>.")
+if( CUSTOM_CONFIGURATION AND CUSTOM_CONFIGURATION_FILE )
+	add_definitions(-DRMLUI_CUSTOM_CONFIGURATION_FILE="${CUSTOM_CONFIGURATION_FILE}")
+	message("-- Including ${CUSTOM_CONFIGURATION_FILE} instead of <RmlUi/Config/Config.h>")
+endif ()
+
+set(CUSTOM_INCLUDE_DIRS "" CACHE STRING "Extra include directories (use with CUSTOM_CONFIGURATION_FILE).")
+if( CUSTOM_CONFIGURATION AND CUSTOM_INCLUDE_DIRS )
+	include_directories(${CUSTOM_INCLUDE_DIRS})
+endif ()
+
+set(CUSTOM_LINK_LIBRARIES "" CACHE STRING "Extra link libraries (use with CUSTOM_CONFIGURATION_FILE).")
+
+if( CUSTOM_CONFIGURATION )
+	mark_as_advanced( CLEAR CUSTOM_CONFIGURATION_FILE CUSTOM_INCLUDE_DIRS CUSTOM_LINK_LIBRARIES )
+else()
+	mark_as_advanced( FORCE CUSTOM_CONFIGURATION_FILE CUSTOM_INCLUDE_DIRS CUSTOM_LINK_LIBRARIES )
+	
+	if( CUSTOM_CONFIGURATION_FILE OR CUSTOM_INCLUDE_DIRS OR CUSTOM_LINK_LIBRARIES )
+		message("-- CUSTOM_CONFIGURATION disabled, but custom configuration variables are set. They will have no effect.")
+	endif()
+endif()
+
+option(ENABLE_TRACY_PROFILING "Enable profiling with Tracy. Source files can be placed in Dependencies/tracy." OFF)
 if( ENABLE_TRACY_PROFILING )
-	add_definitions(-DRMLUI_ENABLE_PROFILING)
+	find_package(Tracy REQUIRED)
+
+	include_directories(${TRACY_INCLUDE_DIR})
+
+	if( CMAKE_CONFIGURATION_TYPES )
+		list(APPEND CMAKE_CONFIGURATION_TYPES Tracy)
+		list(REMOVE_DUPLICATES CMAKE_CONFIGURATION_TYPES)
+		set(CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES}" CACHE STRING
+			"Add the configurations that we need"
+			FORCE)
+		set(CMAKE_C_FLAGS_TRACY "${CMAKE_CXX_FLAGS_RELEASE} -DRMLUI_ENABLE_PROFILING")
+		set(CMAKE_CXX_FLAGS_TRACY "${CMAKE_CXX_FLAGS_RELEASE} -DRMLUI_ENABLE_PROFILING")
+		set(CMAKE_EXE_LINKER_FLAGS_TRACY "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
+		set(CMAKE_SHARED_LINKER_FLAGS_TRACY "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
+		message("-- Tracy profiling enabled in configuration 'Tracy'.")
+	else()
+		message("-- Tracy profiling enabled.")
+		add_definitions(-DRMLUI_ENABLE_PROFILING)
+	endif()
+elseif( CMAKE_CONFIGURATION_TYPES )
+	list(REMOVE_ITEM CMAKE_CONFIGURATION_TYPES Tracy)
 endif()
 
 option(DISABLE_RTTI_AND_EXCEPTIONS "Build with rtti and exceptions disabled." OFF)
@@ -210,7 +265,7 @@ endif()
 
 #Lua
 if(BUILD_LUA_BINDINGS)
-	find_package(Lua)
+	find_package(Lua REQUIRED)
 	if(LUA_FOUND)
 		include_directories(${LUA_INCLUDE_DIR})
 		list(APPEND LUA_BINDINGS_LINK_LIBS ${LUA_LIBRARIES})
@@ -234,7 +289,7 @@ if(NOT BUILD_FRAMEWORK)
 # Build libraries ==================
 #===================================
 
-set(LIBRARIES Core Controls Debugger)
+set(LIBRARIES Core Debugger)
 
 foreach(library ${LIBRARIES})
 	set(NAME Rml${library})
@@ -254,26 +309,41 @@ foreach(library ${LIBRARIES})
 	if (MSVC)
 		target_compile_options(${NAME} PUBLIC "/MP")
 	endif(MSVC)
-	
-	set_property(TARGET ${NAME} PROPERTY CXX_STANDARD 14)
-	set_property(TARGET ${NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
-	
+
+	if( MATRIX_ROW_MAJOR )
+		target_compile_definitions(${NAME} -DRMLUI_MATRIX_ROW_MAJOR=1)
+	endif ()
+
+	if( CUSTOM_CONFIGURATION AND CUSTOM_LINK_LIBRARIES )
+		target_link_libraries(${NAME} ${CUSTOM_LINK_LIBRARIES})
+	endif ()
+
 	install(TARGETS ${NAME}
 		EXPORT RmlUiTargets
 		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 	)
-	
 
 	set(RMLUI_EXPORTED_TARGETS ${RMLUI_EXPORTED_TARGETS} ${NAME})
 endforeach(library)
+
+if( CUSTOM_CONFIGURATION )
+	foreach(library ${CUSTOM_LINK_LIBRARIES})
+		install(TARGETS ${library}
+			EXPORT RmlUiTargets
+			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+			ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+		)
+		set(RMLUI_EXPORTED_TARGETS ${RMLUI_EXPORTED_TARGETS} ${library})
+	endforeach(library ${CUSTOM_LINK_LIBRARIES})
+endif()
 
 target_compile_definitions(RmlCore PRIVATE RMLUI_VERSION="${RMLUI_VERSION_SHORT}")
 
 if (PRECOMPILED_HEADERS_ENABLED)
 	target_precompile_headers(RmlCore PRIVATE ${PROJECT_SOURCE_DIR}/Source/Core/precompiled.h)
-	target_precompile_headers(RmlControls PRIVATE ${PROJECT_SOURCE_DIR}/Source/Controls/precompiled.h)
 endif()
 
 
@@ -286,7 +356,6 @@ else(NOT BUILD_FRAMEWORK)
 
 	set(MASTER_PUB_HDR_FILES
 		${MASTER_Core_PUB_HDR_FILES}
-		${MASTER_Controls_PUB_HDR_FILES}
 		${MASTER_Debugger_PUB_HDR_FILES}
 	)
 
@@ -295,10 +364,6 @@ else(NOT BUILD_FRAMEWORK)
 		${MASTER_Core_PUB_HDR_FILES}
 		${Core_PUB_HDR_FILES}
 		${Core_SRC_FILES}
-		${Controls_HDR_FILES}
-		${MASTER_Controls_PUB_HDR_FILES}
-		${Controls_PUB_HDR_FILES}
-		${Controls_SRC_FILES}
 		${Debugger_HDR_FILES}
 		${MASTER_Debugger_PUB_HDR_FILES}
 		${Debugger_PUB_HDR_FILES}
@@ -315,9 +380,6 @@ else(NOT BUILD_FRAMEWORK)
 	)
 	set_property(SOURCE ${Core_PUB_HDR_FILES}
 		PROPERTY MACOSX_PACKAGE_LOCATION Headers/Core
-	)
-	set_property(SOURCE ${Controls_PUB_HDR_FILES}
-		PROPERTY MACOSX_PACKAGE_LOCATION Headers/Controls
 	)
 	set_property(SOURCE ${Debugger_PUB_HDR_FILES}
 		PROPERTY MACOSX_PACKAGE_LOCATION Headers/Debugger
@@ -345,33 +407,26 @@ endif(NOT BUILD_FRAMEWORK)
 
 # Build Lua bindings
 if(BUILD_LUA_BINDINGS)
-	set(LIBRARIES Core Controls)
+	set(NAME RmlLua)
 
-	foreach(library ${LIBRARIES})
-		set(NAME Rml${library}Lua)
+	add_library(${NAME} ${Lua_SRC_FILES}
+		${Lua_HDR_FILES}
+		${Lua_PUB_HDR_FILES}
+	)
 
-		add_library(${NAME} ${Lua${library}_SRC_FILES}
-			${Lua${library}_HDR_FILES}
-			${Lua${library}_PUB_HDR_FILES}
-		)
+	set_target_properties(${NAME} PROPERTIES
+	   VERSION ${PROJECT_VERSION}
+	   SOVERSION ${PROJECT_VERSION_MAJOR}
+	)
 
-		set_target_properties(${NAME} PROPERTIES
-		   VERSION ${PROJECT_VERSION}
-		   SOVERSION ${PROJECT_VERSION_MAJOR}
-		)
-
-		set_property(TARGET ${NAME} PROPERTY CXX_STANDARD 14)
-		set_property(TARGET ${NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
-
-		install(TARGETS ${NAME}
-			EXPORT RmlUiTargets
-			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-			ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-		)
-		
-		set(RMLUI_EXPORTED_TARGETS ${RMLUI_EXPORTED_TARGETS} ${NAME})
-	endforeach(library)
+	install(TARGETS ${NAME}
+		EXPORT RmlUiTargets
+		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+	)
+	
+	set(RMLUI_EXPORTED_TARGETS ${RMLUI_EXPORTED_TARGETS} ${NAME})
 endif()
 
 
@@ -401,7 +456,6 @@ endif()
 
 if(NOT BUILD_FRAMEWORK)
 target_link_libraries(RmlCore ${CORE_LINK_LIBS})
-target_link_libraries(RmlControls RmlCore)
 target_link_libraries(RmlDebugger RmlCore)
 else(NOT BUILD_FRAMEWORK)
 target_link_libraries(RmlUi ${CORE_LINK_LIBS})
@@ -409,11 +463,9 @@ endif(NOT BUILD_FRAMEWORK)
 
 if(BUILD_LUA_BINDINGS)
 	if(NOT BUILD_FRAMEWORK)
-		target_link_libraries(RmlCoreLua RmlCore ${LUA_BINDINGS_LINK_LIBS})
-		target_link_libraries(RmlControlsLua RmlControls RmlCoreLua ${LUA_BINDINGS_LINK_LIBS})
+		target_link_libraries(RmlLua RmlCore ${LUA_BINDINGS_LINK_LIBS})
 	else(NOT BUILD_FRAMEWORK)
-		target_link_libraries(RmlCoreLua RmlUi ${LUA_BINDINGS_LINK_LIBS})
-		target_link_libraries(RmlControlsLua RmlUi RmlCoreLua ${LUA_BINDINGS_LINK_LIBS})
+		target_link_libraries(RmlLua RmlUi ${LUA_BINDINGS_LINK_LIBS})
 	endif(NOT BUILD_FRAMEWORK)
 endif()
 
@@ -446,19 +498,18 @@ endmacro()
 if(BUILD_SAMPLES)
 	include(SampleFileList)
 
-	set(samples treeview customlog drag loaddocument transform bitmapfont animation benchmark demo)
+	set(samples treeview customlog drag loaddocument transform bitmapfont animation benchmark demo databinding)
 	set(tutorials template datagrid datagrid_tree drag)
 	
 if(NOT BUILD_FRAMEWORK)
 	set(sample_LIBRARIES
-		shell 
-		RmlCore 
-		RmlControls
+		shell
+		RmlCore
 		RmlDebugger
 	)
 else(NOT BUILD_FRAMEWORK)
 	set(sample_LIBRARIES
-		shell 
+		shell
 		RmlUi
 	)
 endif(NOT BUILD_FRAMEWORK)
@@ -504,19 +555,22 @@ endif(NOT BUILD_FRAMEWORK)
 
 	# Build and install sample shell library
 	add_library(shell STATIC ${shell_SRC_FILES} ${shell_HDR_FILES})
-	set_property(TARGET shell PROPERTY CXX_STANDARD 14)
-	set_property(TARGET shell PROPERTY CXX_STANDARD_REQUIRED ON)
 	
 	if (PRECOMPILED_HEADERS_ENABLED)
 		target_precompile_headers(shell PRIVATE ${PROJECT_SOURCE_DIR}/Samples/shell/src/precompiled.h)
 	endif()
 
+	if (WIN32)
+		target_link_libraries(shell PUBLIC shlwapi)
+	endif()
+
+	if( CUSTOM_CONFIGURATION AND CUSTOM_LINK_LIBRARIES )
+		target_link_libraries(shell PUBLIC ${CUSTOM_LINK_LIBRARIES})
+	endif ()
+
 	# Build and install the basic samples
 	foreach(sample ${samples})
 		bl_sample(${sample} ${sample_LIBRARIES})
-		
-		set_property(TARGET ${sample} PROPERTY CXX_STANDARD 14)
-		set_property(TARGET ${sample} PROPERTY CXX_STANDARD_REQUIRED ON)
 
 		# The samples always set this as their current working directory
 		install(DIRECTORY DESTINATION ${SAMPLES_DIR}/basic/${sample})
@@ -533,11 +587,9 @@ endif(NOT BUILD_FRAMEWORK)
 		find_package(GLEW)
 		if(GLEW_FOUND)
 			message("-- Can SDL2 sample be built - yes")
-			include_directories(${SDL2_INCLUDE_DIR} ${GLEW_INCLUDE_DIR})
+			include_directories(${SDL2_INCLUDE_DIR} ${SDL2_IMAGE_INCLUDE_DIR} ${GLEW_INCLUDE_DIR})
 
 			bl_sample(sdl2 ${sample_LIBRARIES}  ${SDL2_LIBRARY} ${SDL2_IMAGE_LIBRARY} ${GLEW_LIBRARIES})
-			set_property(TARGET sdl2 PROPERTY CXX_STANDARD 14)
-			set_property(TARGET sdl2 PROPERTY CXX_STANDARD_REQUIRED ON)
 		
 			# The samples always set this as their current working directory
 			install(DIRECTORY DESTINATION ${SAMPLES_DIR}/basic/sdl2)
@@ -575,9 +627,6 @@ endif(NOT BUILD_FRAMEWORK)
 			include_directories(${SFML_INCLUDE_DIR})
 			bl_sample(sfml2 ${sample_LIBRARIES} ${SFML_LIBRARIES})
 		endif()
-		
-			set_property(TARGET sfml2 PROPERTY CXX_STANDARD 14)
-			set_property(TARGET sfml2 PROPERTY CXX_STANDARD_REQUIRED ON)
 			
 			# The samples always set this as their current working directory
 			install(DIRECTORY DESTINATION ${SAMPLES_DIR}/basic/sfml2)
@@ -590,9 +639,6 @@ endif(NOT BUILD_FRAMEWORK)
 	foreach(tutorial ${tutorials})
 		set(tutorial_fullname tutorial_${tutorial})
 		bl_sample(${tutorial_fullname} ${sample_LIBRARIES})
-
-		set_property(TARGET ${tutorial_fullname} PROPERTY CXX_STANDARD 14)
-		set_property(TARGET ${tutorial_fullname} PROPERTY CXX_STANDARD_REQUIRED ON)
 		
 		# The tutorials always set this as their current working directory
 		install(DIRECTORY DESTINATION ${SAMPLES_DIR}/tutorial/${tutorial})
@@ -603,17 +649,13 @@ endif(NOT BUILD_FRAMEWORK)
 
 	# Build and install invaders sample
 	bl_sample(invaders ${sample_LIBRARIES})
-	set_property(TARGET invaders PROPERTY CXX_STANDARD 14)
-	set_property(TARGET invaders PROPERTY CXX_STANDARD_REQUIRED ON)
 	install(DIRECTORY DESTINATION ${SAMPLES_DIR}/invaders)
 	install(TARGETS invaders 
 		RUNTIME DESTINATION ${SAMPLES_DIR}/invaders
 		BUNDLE DESTINATION ${SAMPLES_DIR})
 
 	if(BUILD_LUA_BINDINGS)
-		bl_sample(luainvaders RmlCoreLua RmlControlsLua ${sample_LIBRARIES} ${LUA_BINDINGS_LINK_LIBS})
-		set_property(TARGET luainvaders PROPERTY CXX_STANDARD 14)
-		set_property(TARGET luainvaders PROPERTY CXX_STANDARD_REQUIRED ON)
+		bl_sample(luainvaders RmlLua ${sample_LIBRARIES} ${LUA_BINDINGS_LINK_LIBS})
 		install(DIRECTORY DESTINATION ${SAMPLES_DIR}/luainvaders)
 		install(TARGETS luainvaders 
 			RUNTIME DESTINATION ${SAMPLES_DIR}/luainvaders
@@ -662,6 +704,9 @@ if(BUILD_SAMPLES)
 	)
 	install(DIRECTORY ${PROJECT_SOURCE_DIR}/Samples/basic/bitmapfont/data
 			DESTINATION ${SAMPLES_DIR}/basic/bitmapfont
+	)
+	install(DIRECTORY ${PROJECT_SOURCE_DIR}/Samples/basic/databinding/data
+			DESTINATION ${SAMPLES_DIR}/basic/databinding
 	)
 	install(DIRECTORY ${PROJECT_SOURCE_DIR}/Samples/basic/demo/data
 			DESTINATION ${SAMPLES_DIR}/basic/demo

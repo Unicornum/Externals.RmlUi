@@ -27,19 +27,22 @@
  */
 
 #include "Memory.h"
+#include <memory>
 #include <stdlib.h>
 #include <stdint.h>
 
 namespace Rml {
-namespace Core {
 
 namespace Detail {
 
-// std::align replacement to support compilers missing this feature.
-// From https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57350
-//
 inline void* rmlui_align(size_t alignment, size_t size, void*& ptr, size_t& space)
 {
+#if defined(_MSC_VER)
+    return std::align(alignment, size, ptr, space);
+#else
+	// std::align replacement to support compilers missing this feature.
+	// From https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57350
+
     uintptr_t pn = reinterpret_cast<uintptr_t>(ptr);
     uintptr_t aligned = (pn + alignment - 1) & -alignment;
     size_t padding = aligned - pn;
@@ -47,6 +50,7 @@ inline void* rmlui_align(size_t alignment, size_t size, void*& ptr, size_t& spac
         return nullptr;
     space -= padding;
     return ptr = reinterpret_cast<void*>(aligned);
+#endif
 }
 
 BasicStackAllocator::BasicStackAllocator(size_t N) : N(N), data((byte*)malloc(N)), p(data)
@@ -90,5 +94,4 @@ BasicStackAllocator& GetGlobalBasicStackAllocator()
 
 }
 
-}
-}
+} // namespace Rml
